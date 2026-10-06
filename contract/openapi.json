@@ -1,0 +1,114 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "DSKT API",
+    "version": "0.1.0",
+    "description": "DSKT backend contract. Health operations expose no connection details."
+  },
+  "components": {
+    "schemas": {}
+  },
+  "paths": {
+    "/health/live": {
+      "get": {
+        "operationId": "getLiveness",
+        "summary": "Process liveness",
+        "tags": [
+          "health"
+        ],
+        "description": "Reports whether this API process can serve. It does not check PostgreSQL.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "The API process can serve requests.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "live"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "additionalProperties": false,
+                  "description": "The API process can serve requests."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "operationId": "getReadiness",
+        "summary": "Database readiness",
+        "tags": [
+          "health"
+        ],
+        "description": "Checks that PostgreSQL accepts a query. The response contains no connection details.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Required dependencies accepted a readiness check.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ready"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Required dependencies accepted a readiness check."
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A required dependency did not accept a readiness check.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "not_ready"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "status"
+                  ],
+                  "additionalProperties": false,
+                  "description": "A required dependency did not accept a readiness check."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000",
+      "description": "Local backend"
+    }
+  ]
+}

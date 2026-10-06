@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: dskt
+          POSTGRES_PASSWORD: dskt-local-only
+          POSTGRES_DB: dskt
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dskt -d dskt"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      DATABASE_URL: postgres://dskt:dskt-local-only@localhost:5432/dskt
+      CORS_ORIGIN: http://localhost:8080
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run format
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npm run openapi:check
+      - run: npm run audit
+      - run: docker build -t dskt-backend:ci .

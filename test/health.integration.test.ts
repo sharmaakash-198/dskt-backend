@@ -15,6 +15,9 @@ function configFor(url: string): AppConfig {
     DATABASE_URL: url,
     CORS_ORIGIN: 'http://localhost:8080',
     LOG_LEVEL: 'silent',
+    AUTH_ENV: 'local',
+    SESSION_SECRET: 'health-test-secret-that-is-at-least-32ch',
+    SESSION_TTL_SECONDS: 28800,
   };
 }
 

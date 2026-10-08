@@ -1,3 +1,4 @@
+import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import swagger from '@fastify/swagger';
 import Fastify, { LogController, type FastifyInstance } from 'fastify';
@@ -12,6 +13,8 @@ import { randomUUID } from 'node:crypto';
 import type pg from 'pg';
 import { z } from 'zod/v4';
 import type { AppConfig } from './config.js';
+import { LocalAuthProvider } from './auth/local-provider.js';
+import { authRoutes } from './auth/routes.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -74,6 +77,11 @@ export async function buildApp(deps: AppDependencies): Promise<FastifyInstance> 
     origin: deps.config.CORS_ORIGIN,
     allowedHeaders: ['Content-Type', 'X-Correlation-Id'],
     exposedHeaders: ['X-Correlation-Id'],
+    credentials: true,
+  });
+
+  await app.register(cookie, {
+    secret: deps.config.SESSION_SECRET,
   });
 
   await app.register(swagger, {
@@ -89,6 +97,10 @@ export async function buildApp(deps: AppDependencies): Promise<FastifyInstance> 
     transform: jsonSchemaTransform,
     transformObject: jsonSchemaTransformObject,
   });
+
+  // Auth routes (local provider only for now)
+  const provider = new LocalAuthProvider(deps.pool, deps.config);
+  await app.register(authRoutes, { provider });
 
   app.get(
     '/health/live',

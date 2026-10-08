@@ -7,6 +7,13 @@ const configSchema = z.object({
   DATABASE_URL: z.string().regex(/^postgres(ql)?:\/\//, 'must be a postgres URL'),
   CORS_ORIGIN: z.string().min(1),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+  AUTH_ENV: z.enum(['local']).default('local'),
+  SESSION_SECRET: z.string().min(32, 'SESSION_SECRET must be at least 32 characters'),
+  SESSION_TTL_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(60)
+    .default(8 * 60 * 60),
 });
 
 export type AppConfig = z.infer<typeof configSchema>;
@@ -27,6 +34,9 @@ function present(env: NodeJS.ProcessEnv): Record<string, string> {
     'DATABASE_URL',
     'CORS_ORIGIN',
     'LOG_LEVEL',
+    'AUTH_ENV',
+    'SESSION_SECRET',
+    'SESSION_TTL_SECONDS',
   ] as const) {
     const value = env[key];
     if (value !== undefined && value !== '') {

@@ -17,6 +17,9 @@ const config: AppConfig = {
   DATABASE_URL: 'postgres://dskt:local@127.0.0.1:1/dskt',
   CORS_ORIGIN: 'http://localhost:8080',
   LOG_LEVEL: 'silent',
+  AUTH_ENV: 'local',
+  SESSION_SECRET: 'openapi-generation-placeholder-secret-32ch',
+  SESSION_TTL_SECONDS: 28800,
 };
 
 const pool = new pg.Pool({ connectionString: config.DATABASE_URL, max: 1 });

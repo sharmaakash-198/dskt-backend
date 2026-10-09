@@ -14,6 +14,7 @@ import type pg from 'pg';
 import { z } from 'zod/v4';
 import type { AppConfig } from './config.js';
 import { accessAdminRoutes } from './access-admin/routes.js';
+import { siteRoutes } from './sites/routes.js';
 import { LocalAuthProvider } from './auth/local-provider.js';
 import { authRoutes } from './auth/routes.js';
 import { workspaceRoutes } from './workspace/routes.js';
@@ -108,6 +109,7 @@ export async function buildApp(deps: AppDependencies): Promise<FastifyInstance> 
   });
   await app.register(workspaceRoutes, { provider });
   await app.register(accessAdminRoutes, { provider, pool: deps.pool });
+  await app.register(siteRoutes, { provider, pool: deps.pool });
 
   app.get(
     '/health/live',

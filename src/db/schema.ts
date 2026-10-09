@@ -1,4 +1,4 @@
-import { pgSchema, uuid, text, boolean, smallint, timestamp } from 'drizzle-orm/pg-core';
+import { pgSchema, uuid, text, boolean, smallint, timestamp, unique } from 'drizzle-orm/pg-core';
 
 export const dskt = pgSchema('dskt');
 
@@ -119,3 +119,46 @@ export const editorLeases = dskt.table('editor_leases', {
   releasedAt: timestamp('released_at', { withTimezone: true }),
   reclaimableAt: timestamp('reclaimable_at', { withTimezone: true }),
 });
+
+// ---------------------------------------------------------------------------
+// Location hierarchy
+// ---------------------------------------------------------------------------
+
+export const sites = dskt.table(
+  'sites',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    code: text('code').notNull(),
+    name: text('name').notNull(),
+    timeZone: text('time_zone').notNull(),
+    addressLine1: text('address_line1'),
+    addressLine2: text('address_line2'),
+    city: text('city'),
+    region: text('region'),
+    postalCode: text('postal_code'),
+    country: text('country'),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [unique('sites_organization_id_code_unique').on(table.organizationId, table.code)],
+);
+
+export const buildings = dskt.table(
+  'buildings',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    siteId: uuid('site_id')
+      .notNull()
+      .references(() => sites.id),
+    code: text('code').notNull(),
+    name: text('name').notNull(),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [unique('buildings_site_id_code_unique').on(table.siteId, table.code)],
+);

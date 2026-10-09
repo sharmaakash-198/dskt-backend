@@ -4,7 +4,7 @@
  * Responsibilities:
  * - Verify a username/password pair against the stored Argon2id hash.
  * - Create an opaque session token and store only its SHA-256 hash.
- * - Look up and validate a session from a token string.
+ * - Resolve a provider-neutral request principal from a session token.
  * - Revoke a session (sign-out).
  *
  * The local provider is development infrastructure; it must refuse to
@@ -16,13 +16,20 @@ import { and, eq, gt, isNull } from 'drizzle-orm';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import type pg from 'pg';
 import type { AppConfig } from '../config.js';
-import { appUsers, localAuthCredentials, localAuthSessions } from '../db/schema.js';
-
-export type AuthenticatedUser = {
-  id: string;
-  email: string;
-  displayName: string;
-};
+import {
+  appUserIdentities,
+  appUserRoles,
+  appUsers,
+  localAuthCredentials,
+  localAuthSessions,
+  roles,
+} from '../db/schema.js';
+import {
+  isAuthProvider,
+  isRoleCode,
+  type RequestPrincipal,
+  type RoleCode,
+} from './principal.js';
 
 function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
@@ -44,12 +51,11 @@ export class LocalAuthProvider {
     this.ttlSeconds = config.SESSION_TTL_SECONDS;
   }
 
-  /** Verify credentials and return a fresh session token. Returns null on failure. */
+  /** Verify credentials and return a fresh session token plus principal. */
   async signIn(
     username: string,
     password: string,
-  ): Promise<{ token: string; user: AuthenticatedUser } | null> {
-    // Look up credential + user in one join
+  ): Promise<{ token: string; principal: RequestPrincipal } | null> {
     const rows = await this.db
       .select({
         userId: localAuthCredentials.appUserId,
@@ -86,17 +92,23 @@ export class LocalAuthProvider {
       expiresAt,
     });
 
-    // Update last_login_at
     await this.db.update(appUsers).set({ lastLoginAt: now }).where(eq(appUsers.id, row.userId));
 
-    return {
-      token,
-      user: { id: row.userId, email: row.email, displayName: row.displayName },
-    };
+    const principal = await this.buildPrincipal({
+      appUserId: row.userId,
+      email: row.email,
+      displayName: row.displayName,
+      preferredProvider: 'LOCAL',
+    });
+    if (!principal) {
+      return null;
+    }
+
+    return { token, principal };
   }
 
-  /** Validate a session token. Returns the user if valid, null otherwise. */
-  async fromToken(token: string): Promise<AuthenticatedUser | null> {
+  /** Validate a session token and return the provider-neutral principal. */
+  async fromToken(token: string): Promise<RequestPrincipal | null> {
     const tokenHash = hashToken(token);
     const now = new Date();
 
@@ -122,7 +134,12 @@ export class LocalAuthProvider {
       return null;
     }
 
-    return { id: row.userId, email: row.email, displayName: row.displayName };
+    return this.buildPrincipal({
+      appUserId: row.userId,
+      email: row.email,
+      displayName: row.displayName,
+      preferredProvider: 'LOCAL',
+    });
   }
 
   /** Revoke a session token. No-op if already revoked or missing. */
@@ -132,5 +149,53 @@ export class LocalAuthProvider {
       .update(localAuthSessions)
       .set({ revokedAt: new Date() })
       .where(and(eq(localAuthSessions.tokenHash, tokenHash), isNull(localAuthSessions.revokedAt)));
+  }
+
+  private async loadActiveRoles(appUserId: string): Promise<RoleCode[]> {
+    const rows = await this.db
+      .select({ code: roles.code })
+      .from(appUserRoles)
+      .innerJoin(roles, eq(appUserRoles.roleId, roles.id))
+      .where(and(eq(appUserRoles.appUserId, appUserId), isNull(appUserRoles.revokedAt)));
+
+    const effective: RoleCode[] = [];
+    for (const row of rows) {
+      if (isRoleCode(row.code)) {
+        effective.push(row.code);
+      }
+    }
+    return effective;
+  }
+
+  private async buildPrincipal(input: {
+    appUserId: string;
+    email: string;
+    displayName: string;
+    preferredProvider: 'LOCAL' | 'ENTRA';
+  }): Promise<RequestPrincipal | null> {
+    const identityRows = await this.db
+      .select({
+        provider: appUserIdentities.provider,
+        providerSubject: appUserIdentities.providerSubject,
+      })
+      .from(appUserIdentities)
+      .where(eq(appUserIdentities.appUserId, input.appUserId));
+
+    const preferred = identityRows.find((row) => row.provider === input.preferredProvider);
+    const identity = preferred ?? identityRows[0];
+    if (!identity || !isAuthProvider(identity.provider)) {
+      return null;
+    }
+
+    const activeRoles = await this.loadActiveRoles(input.appUserId);
+
+    return {
+      appUserId: input.appUserId,
+      provider: identity.provider,
+      providerSubject: identity.providerSubject,
+      roles: activeRoles,
+      email: input.email,
+      displayName: input.displayName,
+    };
   }
 }

@@ -13,8 +13,10 @@ import { randomUUID } from 'node:crypto';
 import type pg from 'pg';
 import { z } from 'zod/v4';
 import type { AppConfig } from './config.js';
+import { accessAdminRoutes } from './access-admin/routes.js';
 import { LocalAuthProvider } from './auth/local-provider.js';
 import { authRoutes } from './auth/routes.js';
+import { workspaceRoutes } from './workspace/routes.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -98,9 +100,14 @@ export async function buildApp(deps: AppDependencies): Promise<FastifyInstance> 
     transformObject: jsonSchemaTransformObject,
   });
 
-  // Auth routes (local provider only for now)
+  // Auth + workspace routes (local provider only for now)
   const provider = new LocalAuthProvider(deps.pool, deps.config);
-  await app.register(authRoutes, { provider });
+  await app.register(authRoutes, {
+    provider,
+    sessionTtlSeconds: deps.config.SESSION_TTL_SECONDS,
+  });
+  await app.register(workspaceRoutes, { provider });
+  await app.register(accessAdminRoutes, { provider, pool: deps.pool });
 
   app.get(
     '/health/live',

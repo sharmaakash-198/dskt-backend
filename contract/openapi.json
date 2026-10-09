@@ -44,7 +44,7 @@
         "security": [],
         "responses": {
           "200": {
-            "description": "Sign-in succeeded.",
+            "description": "Authenticated session with roles and permitted navigation.",
             "content": {
               "application/json": {
                 "schema": {
@@ -72,13 +72,41 @@
                       ],
                       "additionalProperties": false,
                       "description": "The currently authenticated application user."
+                    },
+                    "roles": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "SYSTEM_ADMIN",
+                          "FACILITIES_ADMIN",
+                          "WORKPLACE_PLANNER",
+                          "VIEWER"
+                        ]
+                      },
+                      "description": "Active application roles for the user (union of grants)."
+                    },
+                    "navigation": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "facilities",
+                          "workplace",
+                          "viewer",
+                          "access_admin"
+                        ]
+                      },
+                      "description": "Workspace navigation keys permitted by the active roles."
                     }
                   },
                   "required": [
-                    "user"
+                    "user",
+                    "roles",
+                    "navigation"
                   ],
                   "additionalProperties": false,
-                  "description": "Sign-in succeeded."
+                  "description": "Authenticated session with roles and permitted navigation."
                 }
               }
             }
@@ -116,11 +144,11 @@
         "tags": [
           "auth"
         ],
-        "description": "Returns the authenticated user from the session cookie, or 401.",
+        "description": "Returns the authenticated user, effective roles, and permitted navigation from the session cookie, or 401.",
         "security": [],
         "responses": {
           "200": {
-            "description": "Sign-in succeeded.",
+            "description": "Authenticated session with roles and permitted navigation.",
             "content": {
               "application/json": {
                 "schema": {
@@ -148,13 +176,41 @@
                       ],
                       "additionalProperties": false,
                       "description": "The currently authenticated application user."
+                    },
+                    "roles": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "SYSTEM_ADMIN",
+                          "FACILITIES_ADMIN",
+                          "WORKPLACE_PLANNER",
+                          "VIEWER"
+                        ]
+                      },
+                      "description": "Active application roles for the user (union of grants)."
+                    },
+                    "navigation": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "facilities",
+                          "workplace",
+                          "viewer",
+                          "access_admin"
+                        ]
+                      },
+                      "description": "Workspace navigation keys permitted by the active roles."
                     }
                   },
                   "required": [
-                    "user"
+                    "user",
+                    "roles",
+                    "navigation"
                   ],
                   "additionalProperties": false,
-                  "description": "Sign-in succeeded."
+                  "description": "Authenticated session with roles and permitted navigation."
                 }
               }
             }
@@ -214,6 +270,1463 @@
                   ],
                   "additionalProperties": false,
                   "description": "Session revoked."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workspace/facilities": {
+      "get": {
+        "operationId": "enterFacilitiesWorkspace",
+        "summary": "Enter Facilities workspace",
+        "tags": [
+          "workspace"
+        ],
+        "description": "Returns the empty Facilities workspace when the caller holds the FACILITIES_ADMIN role. Authorization is evaluated from active PostgreSQL grants.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Empty role-appropriate workspace shell.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "workspace": {
+                      "type": "string",
+                      "enum": [
+                        "facilities",
+                        "workplace",
+                        "viewer",
+                        "access_admin"
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "emptyState": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "workspace",
+                    "title",
+                    "emptyState"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Empty role-appropriate workspace shell."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or session expired/revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unauthorized"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Not authenticated or session expired/revoked."
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but missing the required application role.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "forbidden"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Authenticated but missing the required application role."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workspace/workplace": {
+      "get": {
+        "operationId": "enterWorkplaceWorkspace",
+        "summary": "Enter Workplace workspace",
+        "tags": [
+          "workspace"
+        ],
+        "description": "Returns the empty Workplace workspace when the caller holds the WORKPLACE_PLANNER role. Authorization is evaluated from active PostgreSQL grants.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Empty role-appropriate workspace shell.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "workspace": {
+                      "type": "string",
+                      "enum": [
+                        "facilities",
+                        "workplace",
+                        "viewer",
+                        "access_admin"
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "emptyState": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "workspace",
+                    "title",
+                    "emptyState"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Empty role-appropriate workspace shell."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or session expired/revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unauthorized"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Not authenticated or session expired/revoked."
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but missing the required application role.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "forbidden"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Authenticated but missing the required application role."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workspace/viewer": {
+      "get": {
+        "operationId": "enterViewerWorkspace",
+        "summary": "Enter Viewer workspace",
+        "tags": [
+          "workspace"
+        ],
+        "description": "Returns the empty Viewer workspace when the caller holds the VIEWER role. Authorization is evaluated from active PostgreSQL grants.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Empty role-appropriate workspace shell.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "workspace": {
+                      "type": "string",
+                      "enum": [
+                        "facilities",
+                        "workplace",
+                        "viewer",
+                        "access_admin"
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "emptyState": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "workspace",
+                    "title",
+                    "emptyState"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Empty role-appropriate workspace shell."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or session expired/revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unauthorized"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Not authenticated or session expired/revoked."
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but missing the required application role.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "forbidden"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Authenticated but missing the required application role."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/workspace/access-admin": {
+      "get": {
+        "operationId": "enterAccessAdminWorkspace",
+        "summary": "Enter Access administration workspace",
+        "tags": [
+          "workspace"
+        ],
+        "description": "Returns the empty Access administration workspace when the caller holds the SYSTEM_ADMIN role. Authorization is evaluated from active PostgreSQL grants.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Empty role-appropriate workspace shell.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "workspace": {
+                      "type": "string",
+                      "enum": [
+                        "facilities",
+                        "workplace",
+                        "viewer",
+                        "access_admin"
+                      ]
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "emptyState": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "workspace",
+                    "title",
+                    "emptyState"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Empty role-appropriate workspace shell."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or session expired/revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unauthorized"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Not authenticated or session expired/revoked."
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but missing the required application role.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "forbidden"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Authenticated but missing the required application role."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/access-admin/users": {
+      "get": {
+        "operationId": "listAccessAdminUsers",
+        "summary": "List application users",
+        "tags": [
+          "access-admin"
+        ],
+        "description": "Lists application users and active roles for System Administrators. Never returns password hashes or session tokens.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Local application users visible to System Administrators.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "users": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "user": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              "email": {
+                                "type": "string"
+                              },
+                              "displayName": {
+                                "type": "string"
+                              },
+                              "active": {
+                                "type": "boolean"
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "email",
+                              "displayName",
+                              "active"
+                            ],
+                            "additionalProperties": false,
+                            "description": "Application user without credentials."
+                          },
+                          "roles": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": [
+                                "SYSTEM_ADMIN",
+                                "FACILITIES_ADMIN",
+                                "WORKPLACE_PLANNER",
+                                "VIEWER"
+                              ]
+                            }
+                          }
+                        },
+                        "required": [
+                          "user",
+                          "roles"
+                        ],
+                        "additionalProperties": false,
+                        "description": "Application user with active role grants."
+                      }
+                    }
+                  },
+                  "required": [
+                    "users"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Local application users visible to System Administrators."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or session expired/revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unauthorized"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Not authenticated or session expired/revoked."
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but missing SYSTEM_ADMIN.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "forbidden"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Authenticated but missing SYSTEM_ADMIN."
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createAccessAdminUser",
+        "summary": "Create local application user",
+        "tags": [
+          "access-admin"
+        ],
+        "description": "Creates a provider-neutral application user with a local identity and an out-of-band initial password. The password is hashed; it is never returned.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "minLength": 3,
+                    "format": "email",
+                    "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+                  },
+                  "displayName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "username": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "password": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 200
+                  }
+                },
+                "required": [
+                  "email",
+                  "displayName",
+                  "username",
+                  "password"
+                ]
+              }
+            }
+          }
+        },
+        "security": [],
+        "responses": {
+          "201": {
+            "description": "Application user with active role grants.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "user": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "email": {
+                          "type": "string"
+                        },
+                        "displayName": {
+                          "type": "string"
+                        },
+                        "active": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "email",
+                        "displayName",
+                        "active"
+                      ],
+                      "additionalProperties": false,
+                      "description": "Application user without credentials."
+                    },
+                    "roles": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "SYSTEM_ADMIN",
+                          "FACILITIES_ADMIN",
+                          "WORKPLACE_PLANNER",
+                          "VIEWER"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "user",
+                    "roles"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Application user with active role grants."
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "role_not_grantable",
+                        "organization_missing"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or session expired/revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unauthorized"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Not authenticated or session expired/revoked."
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but missing SYSTEM_ADMIN.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "forbidden"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Authenticated but missing SYSTEM_ADMIN."
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "role_already_granted",
+                        "role_not_granted",
+                        "username_taken",
+                        "email_taken",
+                        "user_already_inactive",
+                        "user_still_active"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/access-admin/users/{userId}/roles": {
+      "post": {
+        "operationId": "grantAccessAdminRole",
+        "summary": "Grant a product role",
+        "tags": [
+          "access-admin"
+        ],
+        "description": "Grants Facilities Admin, Workplace Planner, or Viewer. At most one active grant exists per user-role pair; historical grants are retained.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "FACILITIES_ADMIN",
+                      "WORKPLACE_PLANNER",
+                      "VIEWER"
+                    ]
+                  }
+                },
+                "required": [
+                  "role"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "userId",
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Application user with active role grants.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "user": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "email": {
+                          "type": "string"
+                        },
+                        "displayName": {
+                          "type": "string"
+                        },
+                        "active": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "email",
+                        "displayName",
+                        "active"
+                      ],
+                      "additionalProperties": false,
+                      "description": "Application user without credentials."
+                    },
+                    "roles": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "SYSTEM_ADMIN",
+                          "FACILITIES_ADMIN",
+                          "WORKPLACE_PLANNER",
+                          "VIEWER"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "user",
+                    "roles"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Application user with active role grants."
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "role_not_grantable",
+                        "organization_missing"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or session expired/revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unauthorized"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Not authenticated or session expired/revoked."
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but missing SYSTEM_ADMIN.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "forbidden"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Authenticated but missing SYSTEM_ADMIN."
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "user_not_found"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "role_already_granted",
+                        "role_not_granted",
+                        "username_taken",
+                        "email_taken",
+                        "user_already_inactive",
+                        "user_still_active"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/access-admin/users/{userId}/roles/{role}": {
+      "delete": {
+        "operationId": "revokeAccessAdminRole",
+        "summary": "Revoke a product role",
+        "tags": [
+          "access-admin"
+        ],
+        "description": "Revokes an active Facilities Admin, Workplace Planner, or Viewer grant.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "userId",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "role",
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Application user with active role grants.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "user": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "email": {
+                          "type": "string"
+                        },
+                        "displayName": {
+                          "type": "string"
+                        },
+                        "active": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "email",
+                        "displayName",
+                        "active"
+                      ],
+                      "additionalProperties": false,
+                      "description": "Application user without credentials."
+                    },
+                    "roles": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "SYSTEM_ADMIN",
+                          "FACILITIES_ADMIN",
+                          "WORKPLACE_PLANNER",
+                          "VIEWER"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "user",
+                    "roles"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Application user with active role grants."
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "role_not_grantable",
+                        "organization_missing"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or session expired/revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unauthorized"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Not authenticated or session expired/revoked."
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but missing SYSTEM_ADMIN.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "forbidden"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Authenticated but missing SYSTEM_ADMIN."
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "user_not_found"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "role_already_granted",
+                        "role_not_granted",
+                        "username_taken",
+                        "email_taken",
+                        "user_already_inactive",
+                        "user_still_active"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/access-admin/users/{userId}/deactivate": {
+      "post": {
+        "operationId": "deactivateAccessAdminUser",
+        "summary": "Deactivate an application user",
+        "tags": [
+          "access-admin"
+        ],
+        "description": "Deactivates a user, revokes local sessions, and marks active editor leases reclaimable.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "userId",
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "user": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "email": {
+                          "type": "string"
+                        },
+                        "displayName": {
+                          "type": "string"
+                        },
+                        "active": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "email",
+                        "displayName",
+                        "active"
+                      ],
+                      "additionalProperties": false,
+                      "description": "Application user without credentials."
+                    },
+                    "roles": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "SYSTEM_ADMIN",
+                          "FACILITIES_ADMIN",
+                          "WORKPLACE_PLANNER",
+                          "VIEWER"
+                        ]
+                      }
+                    },
+                    "editorLeasesReclaimable": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "user",
+                    "roles",
+                    "editorLeasesReclaimable"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or session expired/revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unauthorized"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Not authenticated or session expired/revoked."
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but missing SYSTEM_ADMIN.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "forbidden"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Authenticated but missing SYSTEM_ADMIN."
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "user_not_found"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "role_already_granted",
+                        "role_not_granted",
+                        "username_taken",
+                        "email_taken",
+                        "user_already_inactive",
+                        "user_still_active"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/access-admin/users/{userId}/editor-leases/reclaim": {
+      "post": {
+        "operationId": "reclaimAccessAdminEditorLeases",
+        "summary": "Reclaim editor leases for a deactivated user",
+        "tags": [
+          "access-admin"
+        ],
+        "description": "Reclaims active editor leases owned by a deactivated user so another editor may acquire them.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "userId",
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Number of editor leases reclaimed for the deactivated user.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "reclaimed": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "reclaimed"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Number of editor leases reclaimed for the deactivated user."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or session expired/revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unauthorized"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Not authenticated or session expired/revoked."
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but missing SYSTEM_ADMIN.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "forbidden"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Authenticated but missing SYSTEM_ADMIN."
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "user_not_found"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "role_already_granted",
+                        "role_not_granted",
+                        "username_taken",
+                        "email_taken",
+                        "user_already_inactive",
+                        "user_still_active"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
                 }
               }
             }

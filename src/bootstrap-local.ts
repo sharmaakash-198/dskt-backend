@@ -2,20 +2,21 @@
 /**
  * bootstrap-local
  *
- * One-time seeder for local development. Creates:
+ * One-time seeder for local development. Creates the first System Admin:
  *   - The Arrise organization (if absent)
  *   - A synthetic System Admin app_user
  *   - A local identity (provider_subject = username)
  *   - An Argon2id credential
  *
- * Run:
+ * Run once:
  *   npm run bootstrap-local -- --username admin --password <password>
  *
- * The password is accepted only at the command line and is never stored
- * as plain text. Do not commit passwords.
+ * Refuses to run when a System Administrator already exists. Further users
+ * are created through the Access administration workspace. The password is
+ * accepted only at the command line and is never stored as plain text.
  */
 import argon2 from 'argon2';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import pg from 'pg';
 import { parseArgs } from 'node:util';
@@ -83,60 +84,83 @@ try {
       console.log('Organization already exists: Arrise');
     }
 
-    // Check if user exists
-    const existing = await tx
-      .select({ id: localAuthCredentials.appUserId })
-      .from(localAuthCredentials)
-      .where(eq(localAuthCredentials.username, username.toLowerCase()));
-
-    if (existing.length > 0) {
-      console.log(`User "${username}" already exists. Nothing to do.`);
-      return;
-    }
-
-    // Create app_user
-    const insertedUsers = await tx
-      .insert(appUsers)
-      .values({
-        organizationId: orgId,
-        email: email.toLowerCase(),
-        displayName: displayName!,
-        active: true,
-      })
-      .returning({ id: appUsers.id });
-    const userId = insertedUsers[0]!.id;
-
-    // Create local identity
-    await tx.insert(appUserIdentities).values({
-      appUserId: userId,
-      provider: 'LOCAL',
-      providerSubject: username.toLowerCase(),
-    });
-
-    // Hash password and store credential
-    const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
-    await tx.insert(localAuthCredentials).values({
-      appUserId: userId,
-      username: username.toLowerCase(),
-      passwordHash,
-    });
-
-    // Grant SYSTEM_ADMIN role (self-granted for bootstrap)
-    const adminRoles = await tx
+    // One-time bootstrap: refuse if any System Administrator already exists.
+    const adminRoleRows = await tx
       .select({ id: roles.id })
       .from(roles)
       .where(eq(roles.code, 'SYSTEM_ADMIN'));
-    if (adminRoles.length > 0) {
-      await tx.insert(appUserRoles).values({
-        appUserId: userId,
-        roleId: adminRoles[0]!.id,
-        grantedByUserId: userId,
-      });
+    const adminRoleId = adminRoleRows[0]?.id;
+    if (adminRoleId !== undefined) {
+      const existingAdmins = await tx
+        .select({ appUserId: appUserRoles.appUserId })
+        .from(appUserRoles)
+        .where(and(eq(appUserRoles.roleId, adminRoleId), isNull(appUserRoles.revokedAt)));
+      if (existingAdmins.length > 0) {
+        console.error(
+          'A local System Administrator already exists. Use the Access administration workspace for further users.',
+        );
+        process.exitCode = 1;
+        return;
+      }
     }
 
-    console.log(`Created local user: ${username} (${email})`);
+    if (adminRoleId === undefined) {
+      console.error('SYSTEM_ADMIN role is missing from the database. Apply migrations first.');
+      process.exitCode = 1;
+      return;
+    }
+
+    // Check if user exists
+    const existing = await tx
+      .select({ appUserId: localAuthCredentials.appUserId })
+      .from(localAuthCredentials)
+      .where(eq(localAuthCredentials.username, username.toLowerCase()));
+
+    let userId: string;
+    if (existing.length > 0) {
+      // Credentials exist but no System Admin yet — complete one-time bootstrap.
+      userId = existing[0]!.appUserId;
+      console.log(`User "${username}" already exists. Granting SYSTEM_ADMIN to complete bootstrap.`);
+    } else {
+      const insertedUsers = await tx
+        .insert(appUsers)
+        .values({
+          organizationId: orgId,
+          email: email.toLowerCase(),
+          displayName: displayName!,
+          active: true,
+        })
+        .returning({ id: appUsers.id });
+      userId = insertedUsers[0]!.id;
+
+      await tx.insert(appUserIdentities).values({
+        appUserId: userId,
+        provider: 'LOCAL',
+        providerSubject: username.toLowerCase(),
+      });
+
+      const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
+      await tx.insert(localAuthCredentials).values({
+        appUserId: userId,
+        username: username.toLowerCase(),
+        passwordHash,
+      });
+
+      console.log(`Created local user: ${username} (${email})`);
+    }
+
+    await tx.insert(appUserRoles).values({
+      appUserId: userId,
+      roleId: adminRoleId,
+      grantedByUserId: userId,
+    });
+
     console.log('SYSTEM_ADMIN role granted.');
   });
 } finally {
   await pool.end();
+}
+
+if (process.exitCode && process.exitCode !== 0) {
+  process.exit(process.exitCode);
 }

@@ -89,3 +89,33 @@ export const appUserRoles = dskt.table('app_user_roles', {
   grantedAt: timestamp('granted_at', { withTimezone: true }).notNull().defaultNow(),
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
 });
+
+// ---------------------------------------------------------------------------
+// Access administration support
+// ---------------------------------------------------------------------------
+
+export const auditEvents = dskt.table('audit_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull().defaultNow(),
+  actorUserId: uuid('actor_user_id')
+    .notNull()
+    .references(() => appUsers.id),
+  action: text('action').notNull(),
+  targetType: text('target_type').notNull(),
+  targetId: text('target_id').notNull(),
+  correlationId: text('correlation_id').notNull(),
+  summary: text('summary').notNull(),
+});
+
+/** Temporary lease rows until Floor Plan editor leases land. */
+export const editorLeases = dskt.table('editor_leases', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  appUserId: uuid('app_user_id')
+    .notNull()
+    .references(() => appUsers.id),
+  resourceKey: text('resource_key').notNull(),
+  acquiredAt: timestamp('acquired_at', { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  releasedAt: timestamp('released_at', { withTimezone: true }),
+  reclaimableAt: timestamp('reclaimable_at', { withTimezone: true }),
+});

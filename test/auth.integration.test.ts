@@ -8,17 +8,21 @@
  */
 import { randomUUID } from 'node:crypto';
 import argon2 from 'argon2';
+import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import pg from 'pg';
 import { beforeEach, describe, expect, it } from 'vitest';
+import type { RoleCode } from '../src/auth/principal.js';
 import { buildApp } from '../src/app.js';
 import type { AppConfig } from '../src/config.js';
 import { applyMigrations } from '../src/db/migrate.js';
 import {
   appUserIdentities,
+  appUserRoles,
   appUsers,
   localAuthCredentials,
   organizations,
+  roles,
 } from '../src/db/schema.js';
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -67,10 +71,10 @@ function createPool(url: string, max = 2): pg.Pool {
   return pool;
 }
 
-/** Seed a synthetic user and return their username/password */
+/** Seed a synthetic user and optional role grants. */
 async function seedUser(
   pool: pg.Pool,
-  opts: { username: string; password: string; active?: boolean },
+  opts: { username: string; password: string; active?: boolean; roleCodes?: RoleCode[] },
 ): Promise<void> {
   const db = drizzle(pool);
   const inserted = await db
@@ -110,6 +114,15 @@ async function seedUser(
     username: opts.username.toLowerCase(),
     passwordHash,
   });
+
+  for (const code of opts.roleCodes ?? []) {
+    const roleRows = await db.select({ id: roles.id }).from(roles).where(eq(roles.code, code));
+    await db.insert(appUserRoles).values({
+      appUserId: userId,
+      roleId: roleRows[0]!.id,
+      grantedByUserId: userId,
+    });
+  }
 }
 
 function extractCookie(
@@ -131,7 +144,11 @@ describe('local auth', () => {
     await withTestDatabase(databaseUrl as string, async (url) => {
       await applyMigrations(url);
       const pool = createPool(url, 3);
-      await seedUser(pool, { username: 'alice', password: 'correct-horse-battery-staple' });
+      await seedUser(pool, {
+        username: 'alice',
+        password: 'correct-horse-battery-staple',
+        roleCodes: ['VIEWER'],
+      });
 
       const app = await buildApp({ config: configFor(url), pool });
 
@@ -143,6 +160,8 @@ describe('local auth', () => {
       });
       expect(signIn.statusCode).toBe(200);
       expect(signIn.json().user.email).toBe('alice@test.local');
+      expect(signIn.json().roles).toEqual(['VIEWER']);
+      expect(signIn.json().navigation).toEqual(['viewer']);
       expect(signIn.body).not.toContain('password');
 
       const cookie = extractCookie(signIn.headers);
@@ -157,6 +176,8 @@ describe('local auth', () => {
       });
       expect(session.statusCode).toBe(200);
       expect(session.json().user.email).toBe('alice@test.local');
+      expect(session.json().roles).toEqual(['VIEWER']);
+      expect(session.json().navigation).toEqual(['viewer']);
 
       // Sign out
       const signOut = await app.inject({
@@ -227,6 +248,79 @@ describe('local auth', () => {
         payload: { username: 'carol', password: 'password123' },
       });
       expect(signIn.statusCode).toBe(401);
+
+      await app.close();
+      await pool.end();
+    });
+  });
+
+  it('rejects an unexpired cookie after the user is deactivated', async () => {
+    await withTestDatabase(databaseUrl as string, async (url) => {
+      await applyMigrations(url);
+      const pool = createPool(url, 2);
+      await seedUser(pool, { username: 'erin', password: 'password123', active: true });
+
+      const app = await buildApp({ config: configFor(url), pool });
+
+      const signIn = await app.inject({
+        method: 'POST',
+        url: '/auth/local/sign-in',
+        payload: { username: 'erin', password: 'password123' },
+      });
+      expect(signIn.statusCode).toBe(200);
+      const cookie = extractCookie(signIn.headers);
+      expect(cookie).toBeTruthy();
+
+      await pool.query(`UPDATE dskt.app_users SET active = FALSE WHERE email = 'erin@test.local'`);
+
+      const session = await app.inject({
+        method: 'GET',
+        url: '/auth/session',
+        headers: { cookie: `dskt_session=${cookie}` },
+      });
+      expect(session.statusCode).toBe(401);
+      expect(session.json().error).toBe('unauthorized');
+
+      await app.close();
+      await pool.end();
+    });
+  });
+
+  it('rejects an expired session token', async () => {
+    await withTestDatabase(databaseUrl as string, async (url) => {
+      await applyMigrations(url);
+      const pool = createPool(url, 2);
+      await seedUser(pool, { username: 'frank', password: 'password123' });
+
+      const config = configFor(url);
+      const app = await buildApp({ config, pool });
+
+      const signIn = await app.inject({
+        method: 'POST',
+        url: '/auth/local/sign-in',
+        payload: { username: 'frank', password: 'password123' },
+      });
+      expect(signIn.statusCode).toBe(200);
+      const cookie = extractCookie(signIn.headers);
+      expect(cookie).toBeTruthy();
+
+      const setCookie = signIn.headers['set-cookie'];
+      const setCookieHeader = Array.isArray(setCookie) ? setCookie[0] : setCookie;
+      expect(setCookieHeader).toMatch(/HttpOnly/i);
+      expect(setCookieHeader).toMatch(/SameSite=Lax/i);
+      expect(setCookieHeader).toMatch(new RegExp(`Max-Age=${config.SESSION_TTL_SECONDS}`, 'i'));
+
+      await pool.query(
+        `UPDATE dskt.local_auth_sessions SET expires_at = NOW() - INTERVAL '1 second'`,
+      );
+
+      const session = await app.inject({
+        method: 'GET',
+        url: '/auth/session',
+        headers: { cookie: `dskt_session=${cookie}` },
+      });
+      expect(session.statusCode).toBe(401);
+      expect(session.json().error).toBe('unauthorized');
 
       await app.close();
       await pool.end();

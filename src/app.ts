@@ -78,6 +78,7 @@ export async function buildApp(deps: AppDependencies): Promise<FastifyInstance> 
 
   await app.register(cors, {
     origin: deps.config.CORS_ORIGIN,
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'X-Correlation-Id'],
     exposedHeaders: ['X-Correlation-Id'],
     credentials: true,

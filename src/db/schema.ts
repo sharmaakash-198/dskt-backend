@@ -1,4 +1,13 @@
-import { pgSchema, uuid, text, boolean, smallint, timestamp, unique } from 'drizzle-orm/pg-core';
+import {
+  pgSchema,
+  uuid,
+  text,
+  boolean,
+  smallint,
+  integer,
+  timestamp,
+  unique,
+} from 'drizzle-orm/pg-core';
 
 export const dskt = pgSchema('dskt');
 
@@ -177,4 +186,46 @@ export const floors = dskt.table(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [unique('floors_building_id_code_unique').on(table.buildingId, table.code)],
+);
+
+// ---------------------------------------------------------------------------
+// Element template catalog (identity only; revisions come later)
+// ---------------------------------------------------------------------------
+
+export const elementCategories = dskt.table(
+  'element_categories',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id),
+    code: text('code').notNull(),
+    name: text('name').notNull(),
+    sortOrder: integer('sort_order').notNull().default(0),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('element_categories_organization_id_code_unique').on(table.organizationId, table.code),
+  ],
+);
+
+export const elementTemplates = dskt.table(
+  'element_templates',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    categoryId: uuid('category_id')
+      .notNull()
+      .references(() => elementCategories.id),
+    code: text('code').notNull(),
+    name: text('name').notNull(),
+    description: text('description').notNull().default(''),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('element_templates_category_id_code_unique').on(table.categoryId, table.code),
+  ],
 );

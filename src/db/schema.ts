@@ -162,3 +162,19 @@ export const buildings = dskt.table(
   },
   (table) => [unique('buildings_site_id_code_unique').on(table.siteId, table.code)],
 );
+
+export const floors = dskt.table(
+  'floors',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    buildingId: uuid('building_id')
+      .notNull()
+      .references(() => buildings.id),
+    code: text('code').notNull(),
+    name: text('name').notNull(),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [unique('floors_building_id_code_unique').on(table.buildingId, table.code)],
+);

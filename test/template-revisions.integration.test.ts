@@ -283,7 +283,9 @@ describe('immutable template revisions', () => {
         },
       });
       expect(diagonal.statusCode).toBe(400);
-      expect(diagonal.json()).toEqual({ error: 'non_orthogonal_edge' });
+      expect(diagonal.json().error).toBe('invalid_geometry');
+      expect(diagonal.json().diagnostics[0].code).toBe('non_orthogonal_edge');
+      expect(diagonal.json().diagnostics[0].edgeIndex).toBe(1);
 
       // Failure must not create a partial revision number gap from the diagonal attempt.
       const afterFail = await db

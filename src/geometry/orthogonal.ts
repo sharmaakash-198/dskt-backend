@@ -11,17 +11,51 @@ export type GeometryErrorCode =
   | 'non_orthogonal_edge'
   | 'zero_length_edge'
   | 'duplicate_closing_vertex'
-  | 'repeated_vertex';
+  | 'repeated_vertex'
+  | 'self_intersecting'
+  | 'not_anticlockwise'
+  | 'degenerate_polygon';
+
+export type GeometryDiagnostic = {
+  code: GeometryErrorCode;
+  message: string;
+  vertexIndex?: number;
+  edgeIndex?: number;
+};
 
 export class GeometryError extends Error {
-  constructor(readonly code: GeometryErrorCode) {
+  constructor(
+    readonly code: GeometryErrorCode,
+    readonly vertexIndex?: number,
+    readonly edgeIndex?: number,
+  ) {
     super(code);
     this.name = 'GeometryError';
   }
 }
 
+export class GeometryValidationError extends Error {
+  constructor(readonly diagnostics: GeometryDiagnostic[]) {
+    super('invalid_geometry');
+    this.name = 'GeometryValidationError';
+  }
+}
+
 function isInteger(value: number): boolean {
   return Number.isInteger(value) && Number.isFinite(value);
+}
+
+function diagnostic(
+  code: GeometryErrorCode,
+  message: string,
+  loc?: { vertexIndex?: number; edgeIndex?: number },
+): GeometryDiagnostic {
+  return {
+    code,
+    message,
+    vertexIndex: loc?.vertexIndex,
+    edgeIndex: loc?.edgeIndex,
+  };
 }
 
 /** Drop an explicit closing vertex that duplicates the first point. */
@@ -51,33 +85,133 @@ export function normalizeToOrigin(vertices: Vertex[]): Vertex[] {
   return vertices.map((vertex) => ({ x: vertex.x - minX, y: vertex.y - minY }));
 }
 
-export function validateOrthogonalPolygon(raw: Vertex[]): Vertex[] {
-  for (const vertex of raw) {
-    if (!isInteger(vertex.x) || !isInteger(vertex.y)) {
-      throw new GeometryError('invalid_vertex_coordinates');
+/** Signed double area via shoelace; positive means anticlockwise in standard Cartesian. */
+export function signedDoubleArea(vertices: Vertex[]): number {
+  let area = 0;
+  for (let index = 0; index < vertices.length; index += 1) {
+    const current = vertices[index]!;
+    const next = vertices[(index + 1) % vertices.length]!;
+    area += current.x * next.y - next.x * current.y;
+  }
+  return area;
+}
+
+function segmentsProperlyIntersect(
+  a1: Vertex,
+  a2: Vertex,
+  b1: Vertex,
+  b2: Vertex,
+): boolean {
+  // Orthogonal segments only: axis-aligned overlap that is not mere touching at endpoints.
+  const aHorizontal = a1.y === a2.y;
+  const bHorizontal = b1.y === b2.y;
+  if (aHorizontal === bHorizontal) {
+    if (aHorizontal) {
+      if (a1.y !== b1.y) return false;
+      const aMin = Math.min(a1.x, a2.x);
+      const aMax = Math.max(a1.x, a2.x);
+      const bMin = Math.min(b1.x, b2.x);
+      const bMax = Math.max(b1.x, b2.x);
+      return aMin < bMax && bMin < aMax;
     }
+    if (a1.x !== b1.x) return false;
+    const aMin = Math.min(a1.y, a2.y);
+    const aMax = Math.max(a1.y, a2.y);
+    const bMin = Math.min(b1.y, b2.y);
+    const bMax = Math.max(b1.y, b2.y);
+    return aMin < bMax && bMin < aMax;
+  }
+  const h1 = aHorizontal ? a1 : b1;
+  const h2 = aHorizontal ? a2 : b2;
+  const v1 = aHorizontal ? b1 : a1;
+  const v2 = aHorizontal ? b2 : a2;
+  const y = h1.y;
+  const x = v1.x;
+  const hMin = Math.min(h1.x, h2.x);
+  const hMax = Math.max(h1.x, h2.x);
+  const vMin = Math.min(v1.y, v2.y);
+  const vMax = Math.max(v1.y, v2.y);
+  // Proper crossing (not endpoint touch): x strictly inside horizontal span and y strictly inside vertical.
+  return x > hMin && x < hMax && y > vMin && y < vMax;
+}
+
+export function findSelfIntersections(vertices: Vertex[]): number[] {
+  const edges: number[] = [];
+  const count = vertices.length;
+  for (let i = 0; i < count; i += 1) {
+    const a1 = vertices[i]!;
+    const a2 = vertices[(i + 1) % count]!;
+    for (let j = i + 1; j < count; j += 1) {
+      // Skip adjacent edges and the closing pair (0 and n-1).
+      if (Math.abs(i - j) <= 1) continue;
+      if (i === 0 && j === count - 1) continue;
+      const b1 = vertices[j]!;
+      const b2 = vertices[(j + 1) % count]!;
+      if (segmentsProperlyIntersect(a1, a2, b1, b2)) {
+        edges.push(i, j);
+      }
+    }
+  }
+  return [...new Set(edges)].sort((a, b) => a - b);
+}
+
+export function diagnoseOrthogonalPolygon(raw: Vertex[]): GeometryDiagnostic[] {
+  const diagnostics: GeometryDiagnostic[] = [];
+
+  for (let index = 0; index < raw.length; index += 1) {
+    const vertex = raw[index]!;
+    if (!isInteger(vertex.x) || !isInteger(vertex.y)) {
+      diagnostics.push(
+        diagnostic('invalid_vertex_coordinates', 'Vertex coordinates must be integers.', {
+          vertexIndex: index,
+        }),
+      );
+    }
+  }
+  if (diagnostics.length > 0) {
+    return diagnostics;
   }
 
   if (raw.length >= 2) {
     const first = raw[0]!;
     const last = raw[raw.length - 1]!;
     if (first.x === last.x && first.y === last.y) {
-      throw new GeometryError('duplicate_closing_vertex');
+      diagnostics.push(
+        diagnostic(
+          'duplicate_closing_vertex',
+          'Do not repeat the first vertex to close the polygon; closure is implicit.',
+          { vertexIndex: raw.length - 1 },
+        ),
+      );
+      return diagnostics;
     }
   }
 
   const vertices = stripClosingDuplicate(raw);
   if (vertices.length < 4 || vertices.length > 100) {
-    throw new GeometryError('invalid_vertex_count');
+    diagnostics.push(
+      diagnostic(
+        'invalid_vertex_count',
+        'Polygons must have between 4 and 100 vertices (implicit closure).',
+      ),
+    );
+    return diagnostics;
   }
 
-  const seen = new Set<string>();
-  for (const vertex of vertices) {
+  const seen = new Map<string, number>();
+  for (let index = 0; index < vertices.length; index += 1) {
+    const vertex = vertices[index]!;
     const key = `${vertex.x},${vertex.y}`;
-    if (seen.has(key)) {
-      throw new GeometryError('repeated_vertex');
+    const prior = seen.get(key);
+    if (prior !== undefined) {
+      diagnostics.push(
+        diagnostic('repeated_vertex', `Vertex repeats an earlier point at index ${prior}.`, {
+          vertexIndex: index,
+        }),
+      );
+    } else {
+      seen.set(key, index);
     }
-    seen.add(key);
   }
 
   for (let index = 0; index < vertices.length; index += 1) {
@@ -86,14 +220,60 @@ export function validateOrthogonalPolygon(raw: Vertex[]): Vertex[] {
     const dx = next.x - current.x;
     const dy = next.y - current.y;
     if (dx === 0 && dy === 0) {
-      throw new GeometryError('zero_length_edge');
-    }
-    if (dx !== 0 && dy !== 0) {
-      throw new GeometryError('non_orthogonal_edge');
+      diagnostics.push(
+        diagnostic('zero_length_edge', 'Edge length must be non-zero.', {
+          edgeIndex: index,
+          vertexIndex: index,
+        }),
+      );
+    } else if (dx !== 0 && dy !== 0) {
+      diagnostics.push(
+        diagnostic('non_orthogonal_edge', 'Edges must be horizontal or vertical.', {
+          edgeIndex: index,
+          vertexIndex: index,
+        }),
+      );
     }
   }
 
-  return normalizeToOrigin(vertices);
+  if (diagnostics.length > 0) {
+    return diagnostics;
+  }
+
+  const area = signedDoubleArea(vertices);
+  if (area === 0) {
+    diagnostics.push(
+      diagnostic('degenerate_polygon', 'Polygon area must be non-zero.'),
+    );
+    return diagnostics;
+  }
+  if (area < 0) {
+    diagnostics.push(
+      diagnostic(
+        'not_anticlockwise',
+        'Vertices must be ordered anticlockwise (counter-clockwise).',
+      ),
+    );
+  }
+
+  for (const edgeIndex of findSelfIntersections(vertices)) {
+    diagnostics.push(
+      diagnostic('self_intersecting', 'Polygon edges must not properly intersect.', {
+        edgeIndex,
+        vertexIndex: edgeIndex,
+      }),
+    );
+  }
+
+  return diagnostics;
+}
+
+export function validateOrthogonalPolygon(raw: Vertex[]): Vertex[] {
+  const diagnostics = diagnoseOrthogonalPolygon(raw);
+  if (diagnostics.length > 0) {
+    throw new GeometryValidationError(diagnostics);
+  }
+  return normalizeToOrigin(stripClosingDuplicate(raw));
 }
 
 export function snapToEditingScale(value: number, scale: number): number {

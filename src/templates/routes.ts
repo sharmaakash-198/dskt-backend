@@ -76,6 +76,23 @@ const notFoundResponse = z.object({
   error: z.enum(['category_not_found', 'template_not_found']),
 });
 
+const geometryDiagnostic = z.object({
+  code: z.enum([
+    'invalid_vertex_coordinates',
+    'invalid_vertex_count',
+    'non_orthogonal_edge',
+    'zero_length_edge',
+    'duplicate_closing_vertex',
+    'repeated_vertex',
+    'self_intersecting',
+    'not_anticlockwise',
+    'degenerate_polygon',
+  ]),
+  message: z.string(),
+  vertexIndex: z.number().int().nonnegative().optional(),
+  edgeIndex: z.number().int().nonnegative().optional(),
+});
+
 const badRequestResponse = z.object({
   error: z.enum([
     'invalid_category_code',
@@ -87,13 +104,9 @@ const badRequestResponse = z.object({
     'invalid_spatial_class',
     'invalid_assignability',
     'invalid_color',
-    'invalid_vertex_coordinates',
-    'invalid_vertex_count',
-    'non_orthogonal_edge',
-    'zero_length_edge',
-    'duplicate_closing_vertex',
-    'repeated_vertex',
+    'invalid_geometry',
   ]),
+  diagnostics: z.array(geometryDiagnostic).optional(),
 });
 
 export type TemplateRouteOptions = {
@@ -103,7 +116,7 @@ export type TemplateRouteOptions = {
 
 function templateErrorHttp(error: TemplateError): {
   status: 400 | 404 | 409;
-  body: { error: TemplateError['code'] };
+  body: { error: TemplateError['code']; diagnostics?: TemplateError['diagnostics'] };
 } {
   switch (error.code) {
     case 'category_not_found':
@@ -114,6 +127,11 @@ function templateErrorHttp(error: TemplateError): {
     case 'template_code_taken':
     case 'template_archived':
       return { status: 409, body: { error: error.code } };
+    case 'invalid_geometry':
+      return {
+        status: 400,
+        body: { error: error.code, diagnostics: error.diagnostics },
+      };
     default:
       return { status: 400, body: { error: error.code } };
   }

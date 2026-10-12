@@ -8,8 +8,9 @@ import { and, asc, desc, eq, isNull, max } from 'drizzle-orm';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import type pg from 'pg';
 import {
-  GeometryError,
+  GeometryValidationError,
   validateOrthogonalPolygon,
+  type GeometryDiagnostic,
   type Vertex,
 } from '../geometry/orthogonal.js';
 import {
@@ -75,7 +76,8 @@ export class TemplateError extends Error {
       | 'invalid_spatial_class'
       | 'invalid_assignability'
       | 'invalid_color'
-      | GeometryError['code'],
+      | 'invalid_geometry',
+    readonly diagnostics: GeometryDiagnostic[] = [],
   ) {
     super(code);
     this.name = 'TemplateError';
@@ -391,8 +393,8 @@ export class TemplateService {
     try {
       normalized = validateOrthogonalPolygon(input.vertices);
     } catch (error) {
-      if (error instanceof GeometryError) {
-        throw new TemplateError(error.code);
+      if (error instanceof GeometryValidationError) {
+        throw new TemplateError('invalid_geometry', error.diagnostics);
       }
       throw error;
     }

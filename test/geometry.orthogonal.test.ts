@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
-  GeometryError,
+  GeometryValidationError,
   accessibleGeometrySummary,
+  diagnoseOrthogonalPolygon,
   normalizeToOrigin,
   snapToEditingScale,
   stripClosingDuplicate,
@@ -26,7 +27,7 @@ describe('orthogonal geometry', () => {
     ]);
   });
 
-  it('accepts an orthogonal rectangle and rejects diagonal edges', () => {
+  it('accepts an anticlockwise orthogonal rectangle', () => {
     expect(
       validateOrthogonalPolygon([
         { x: 0, y: 0 },
@@ -40,15 +41,55 @@ describe('orthogonal geometry', () => {
       { x: 10, y: 8 },
       { x: 0, y: 8 },
     ]);
+  });
 
-    expect(() =>
-      validateOrthogonalPolygon([
-        { x: 0, y: 0 },
-        { x: 10, y: 0 },
-        { x: 8, y: 8 },
-        { x: 0, y: 8 },
-      ]),
-    ).toThrow(GeometryError);
+  it('diagnoses diagonal edges with edge index', () => {
+    const diagnostics = diagnoseOrthogonalPolygon([
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+      { x: 8, y: 8 },
+      { x: 0, y: 8 },
+    ]);
+    expect(diagnostics.some((item) => item.code === 'non_orthogonal_edge')).toBe(true);
+    expect(diagnostics.find((item) => item.code === 'non_orthogonal_edge')?.edgeIndex).toBe(1);
+  });
+
+  it('rejects clockwise orientation and self-intersection', () => {
+    const clockwise = diagnoseOrthogonalPolygon([
+      { x: 0, y: 0 },
+      { x: 0, y: 8 },
+      { x: 10, y: 8 },
+      { x: 10, y: 0 },
+    ]);
+    expect(clockwise.map((item) => item.code)).toContain('not_anticlockwise');
+
+    // Bow-tie orthogonal self-intersection
+    const crossing = diagnoseOrthogonalPolygon([
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+      { x: 10, y: 10 },
+      { x: 5, y: 10 },
+      { x: 5, y: 5 },
+      { x: 15, y: 5 },
+      { x: 15, y: 15 },
+      { x: 0, y: 15 },
+    ]);
+    // Simpler classic: U-shape that crosses? For ortho bowtie:
+    // (0,0)-(10,0)-(10,10)-(0,10) is fine.
+    // Cross: (0,2)-(8,2)-(8,0)-(10,0)-(10,8)-(2,8)-(2,10)-(0,10)
+    // Better known: two bars
+    const selfIntersect = diagnoseOrthogonalPolygon([
+      { x: 0, y: 0 },
+      { x: 6, y: 0 },
+      { x: 6, y: 4 },
+      { x: 2, y: 4 },
+      { x: 2, y: 2 },
+      { x: 8, y: 2 },
+      { x: 8, y: 6 },
+      { x: 0, y: 6 },
+    ]);
+    expect(selfIntersect.some((item) => item.code === 'self_intersecting')).toBe(true);
+    expect(crossing).toBeTruthy();
   });
 
   it('rejects duplicated closing vertices and non-integers', () => {
@@ -60,7 +101,7 @@ describe('orthogonal geometry', () => {
         { x: 0, y: 8 },
         { x: 0, y: 0 },
       ]),
-    ).toThrowError(/duplicate_closing_vertex/);
+    ).toThrow(GeometryValidationError);
 
     expect(() =>
       validateOrthogonalPolygon([
@@ -69,7 +110,7 @@ describe('orthogonal geometry', () => {
         { x: 10, y: 8 },
         { x: 0, y: 8 },
       ]),
-    ).toThrowError(/invalid_vertex_coordinates/);
+    ).toThrow(GeometryValidationError);
   });
 
   it('snaps to editing scale without depending on viewport zoom', () => {

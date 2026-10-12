@@ -4369,13 +4369,48 @@
                         "invalid_spatial_class",
                         "invalid_assignability",
                         "invalid_color",
-                        "invalid_vertex_coordinates",
-                        "invalid_vertex_count",
-                        "non_orthogonal_edge",
-                        "zero_length_edge",
-                        "duplicate_closing_vertex",
-                        "repeated_vertex"
+                        "invalid_geometry"
                       ]
+                    },
+                    "diagnostics": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string",
+                            "enum": [
+                              "invalid_vertex_coordinates",
+                              "invalid_vertex_count",
+                              "non_orthogonal_edge",
+                              "zero_length_edge",
+                              "duplicate_closing_vertex",
+                              "repeated_vertex",
+                              "self_intersecting",
+                              "not_anticlockwise",
+                              "degenerate_polygon"
+                            ]
+                          },
+                          "message": {
+                            "type": "string"
+                          },
+                          "vertexIndex": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "edgeIndex": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false
+                      }
                     }
                   },
                   "required": [
@@ -4574,13 +4609,48 @@
                         "invalid_spatial_class",
                         "invalid_assignability",
                         "invalid_color",
-                        "invalid_vertex_coordinates",
-                        "invalid_vertex_count",
-                        "non_orthogonal_edge",
-                        "zero_length_edge",
-                        "duplicate_closing_vertex",
-                        "repeated_vertex"
+                        "invalid_geometry"
                       ]
+                    },
+                    "diagnostics": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string",
+                            "enum": [
+                              "invalid_vertex_coordinates",
+                              "invalid_vertex_count",
+                              "non_orthogonal_edge",
+                              "zero_length_edge",
+                              "duplicate_closing_vertex",
+                              "repeated_vertex",
+                              "self_intersecting",
+                              "not_anticlockwise",
+                              "degenerate_polygon"
+                            ]
+                          },
+                          "message": {
+                            "type": "string"
+                          },
+                          "vertexIndex": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "edgeIndex": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false
+                      }
                     }
                   },
                   "required": [
@@ -5148,13 +5218,48 @@
                         "invalid_spatial_class",
                         "invalid_assignability",
                         "invalid_color",
-                        "invalid_vertex_coordinates",
-                        "invalid_vertex_count",
-                        "non_orthogonal_edge",
-                        "zero_length_edge",
-                        "duplicate_closing_vertex",
-                        "repeated_vertex"
+                        "invalid_geometry"
                       ]
+                    },
+                    "diagnostics": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string",
+                            "enum": [
+                              "invalid_vertex_coordinates",
+                              "invalid_vertex_count",
+                              "non_orthogonal_edge",
+                              "zero_length_edge",
+                              "duplicate_closing_vertex",
+                              "repeated_vertex",
+                              "self_intersecting",
+                              "not_anticlockwise",
+                              "degenerate_polygon"
+                            ]
+                          },
+                          "message": {
+                            "type": "string"
+                          },
+                          "vertexIndex": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "edgeIndex": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false
+                      }
                     }
                   },
                   "required": [
@@ -5635,13 +5740,48 @@
                         "invalid_spatial_class",
                         "invalid_assignability",
                         "invalid_color",
-                        "invalid_vertex_coordinates",
-                        "invalid_vertex_count",
-                        "non_orthogonal_edge",
-                        "zero_length_edge",
-                        "duplicate_closing_vertex",
-                        "repeated_vertex"
+                        "invalid_geometry"
                       ]
+                    },
+                    "diagnostics": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string",
+                            "enum": [
+                              "invalid_vertex_coordinates",
+                              "invalid_vertex_count",
+                              "non_orthogonal_edge",
+                              "zero_length_edge",
+                              "duplicate_closing_vertex",
+                              "repeated_vertex",
+                              "self_intersecting",
+                              "not_anticlockwise",
+                              "degenerate_polygon"
+                            ]
+                          },
+                          "message": {
+                            "type": "string"
+                          },
+                          "vertexIndex": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "edgeIndex": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false
+                      }
                     }
                   },
                   "required": [

@@ -7,6 +7,7 @@ import {
   integer,
   timestamp,
   unique,
+  primaryKey,
 } from 'drizzle-orm/pg-core';
 
 export const dskt = pgSchema('dskt');
@@ -221,11 +222,60 @@ export const elementTemplates = dskt.table(
     code: text('code').notNull(),
     name: text('name').notNull(),
     description: text('description').notNull().default(''),
+    currentRevisionId: uuid('current_revision_id'),
     archivedAt: timestamp('archived_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     unique('element_templates_category_id_code_unique').on(table.categoryId, table.code),
+  ],
+);
+
+export const elementTemplateRevisions = dskt.table(
+  'element_template_revisions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    elementTemplateId: uuid('element_template_id')
+      .notNull()
+      .references(() => elementTemplates.id),
+    revisionNumber: integer('revision_number').notNull(),
+    assignable: boolean('assignable').notNull(),
+    spatialClass: text('spatial_class').notNull(),
+    borderColor: text('border_color').notNull(),
+    fillColor: text('fill_color').notNull(),
+    createdByUserId: uuid('created_by_user_id')
+      .notNull()
+      .references(() => appUsers.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('element_template_revisions_template_id_revision_number_unique').on(
+      table.elementTemplateId,
+      table.revisionNumber,
+    ),
+  ],
+);
+
+export const elementTemplateRevisionVertices = dskt.table(
+  'element_template_revision_vertices',
+  {
+    elementTemplateRevisionId: uuid('element_template_revision_id')
+      .notNull()
+      .references(() => elementTemplateRevisions.id),
+    sequence: integer('sequence').notNull(),
+    x: integer('x').notNull(),
+    y: integer('y').notNull(),
+  },
+  (table) => [
+    primaryKey({
+      name: 'element_template_revision_vertices_pk',
+      columns: [table.elementTemplateRevisionId, table.sequence],
+    }),
+    unique('element_template_revision_vertices_xy_unique').on(
+      table.elementTemplateRevisionId,
+      table.x,
+      table.y,
+    ),
   ],
 );

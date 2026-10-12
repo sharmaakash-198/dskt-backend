@@ -43,6 +43,13 @@
       "when": 1760140800000,
       "tag": "0005_element_templates",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1760227200000,
+      "tag": "0006_template_revisions",
+      "breakpoints": true
     }
   ]
 }

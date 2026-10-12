@@ -4,12 +4,27 @@
  * Creates stable Template identities without any geometry revision. New
  * Templates are not placeable until a later ticket publishes a revision.
  */
-import { and, asc, eq, isNull, max } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, max } from 'drizzle-orm';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import type pg from 'pg';
-import { elementCategories, elementTemplates, organizations } from '../db/schema.js';
+import {
+  GeometryError,
+  validateOrthogonalPolygon,
+  type Vertex,
+} from '../geometry/orthogonal.js';
+import {
+  elementCategories,
+  elementTemplateRevisionVertices,
+  elementTemplateRevisions,
+  elementTemplates,
+  organizations,
+} from '../db/schema.js';
 
 const CODE_PATTERN = /^[A-Z0-9][A-Z0-9_-]{0,31}$/;
+const COLOR_PATTERN = /^#[0-9A-Fa-f]{6}$/;
+const SPATIAL_CLASSES = ['PHYSICAL', 'ZONE', 'OBSTACLE'] as const;
+
+export type SpatialClass = (typeof SPATIAL_CLASSES)[number];
 
 export type CategoryView = {
   id: string;
@@ -25,9 +40,21 @@ export type TemplateView = {
   code: string;
   name: string;
   description: string;
-  currentRevisionId: null;
-  placeable: false;
+  currentRevisionId: string | null;
+  placeable: boolean;
   archivedAt: string | null;
+};
+
+export type TemplateRevisionView = {
+  id: string;
+  templateId: string;
+  revisionNumber: number;
+  assignable: boolean;
+  spatialClass: SpatialClass;
+  borderColor: string;
+  fillColor: string;
+  vertices: Vertex[];
+  isCurrent: boolean;
 };
 
 export class TemplateError extends Error {
@@ -43,7 +70,12 @@ export class TemplateError extends Error {
       | 'invalid_template_code'
       | 'invalid_template_name'
       | 'template_code_taken'
-      | 'template_not_found',
+      | 'template_not_found'
+      | 'template_archived'
+      | 'invalid_spatial_class'
+      | 'invalid_assignability'
+      | 'invalid_color'
+      | GeometryError['code'],
   ) {
     super(code);
     this.name = 'TemplateError';
@@ -93,6 +125,7 @@ function toTemplate(row: {
   code: string;
   name: string;
   description: string;
+  currentRevisionId: string | null;
   archivedAt: Date | null;
 }): TemplateView {
   return {
@@ -101,8 +134,8 @@ function toTemplate(row: {
     code: row.code,
     name: row.name,
     description: row.description,
-    currentRevisionId: null,
-    placeable: false,
+    currentRevisionId: row.currentRevisionId,
+    placeable: row.currentRevisionId !== null,
     archivedAt: row.archivedAt ? row.archivedAt.toISOString() : null,
   };
 }
@@ -121,6 +154,7 @@ const templateColumns = {
   code: elementTemplates.code,
   name: elementTemplates.name,
   description: elementTemplates.description,
+  currentRevisionId: elementTemplates.currentRevisionId,
   archivedAt: elementTemplates.archivedAt,
 };
 
@@ -286,7 +320,6 @@ export class TemplateService {
           .returning(templateColumns);
 
         const view = toTemplate(inserted[0]!);
-        // Guard: placeable stays false with no current revision.
         if (view.currentRevisionId !== null || view.placeable !== false) {
           throw new Error('template_identity_invariant_broken');
         }
@@ -298,6 +331,139 @@ export class TemplateService {
         throw error;
       }
     });
+  }
+
+  async listRevisions(templateId: string): Promise<TemplateRevisionView[]> {
+    const template = await this.requireTemplate(this.db, templateId);
+    const revisions = await this.db
+      .select()
+      .from(elementTemplateRevisions)
+      .where(eq(elementTemplateRevisions.elementTemplateId, templateId))
+      .orderBy(desc(elementTemplateRevisions.revisionNumber));
+
+    const views: TemplateRevisionView[] = [];
+    for (const revision of revisions) {
+      const vertices = await this.db
+        .select({
+          sequence: elementTemplateRevisionVertices.sequence,
+          x: elementTemplateRevisionVertices.x,
+          y: elementTemplateRevisionVertices.y,
+        })
+        .from(elementTemplateRevisionVertices)
+        .where(eq(elementTemplateRevisionVertices.elementTemplateRevisionId, revision.id))
+        .orderBy(asc(elementTemplateRevisionVertices.sequence));
+      views.push({
+        id: revision.id,
+        templateId,
+        revisionNumber: revision.revisionNumber,
+        assignable: revision.assignable,
+        spatialClass: revision.spatialClass as SpatialClass,
+        borderColor: revision.borderColor,
+        fillColor: revision.fillColor,
+        vertices: vertices.map((vertex) => ({ x: vertex.x, y: vertex.y })),
+        isCurrent: template.currentRevisionId === revision.id,
+      });
+    }
+    return views;
+  }
+
+  async createRevision(input: {
+    actorUserId: string;
+    templateId: string;
+    spatialClass: string;
+    assignable: boolean;
+    borderColor: string;
+    fillColor: string;
+    vertices: Vertex[];
+  }): Promise<TemplateRevisionView> {
+    if (!SPATIAL_CLASSES.includes(input.spatialClass as SpatialClass)) {
+      throw new TemplateError('invalid_spatial_class');
+    }
+    const spatialClass = input.spatialClass as SpatialClass;
+    if (input.assignable && spatialClass !== 'PHYSICAL') {
+      throw new TemplateError('invalid_assignability');
+    }
+    if (!COLOR_PATTERN.test(input.borderColor) || !COLOR_PATTERN.test(input.fillColor)) {
+      throw new TemplateError('invalid_color');
+    }
+
+    let normalized: Vertex[];
+    try {
+      normalized = validateOrthogonalPolygon(input.vertices);
+    } catch (error) {
+      if (error instanceof GeometryError) {
+        throw new TemplateError(error.code);
+      }
+      throw error;
+    }
+
+    return this.db.transaction(async (tx) => {
+      const template = await this.requireTemplate(tx, input.templateId);
+      if (template.archivedAt) {
+        throw new TemplateError('template_archived');
+      }
+
+      const maxRows = await tx
+        .select({ value: max(elementTemplateRevisions.revisionNumber) })
+        .from(elementTemplateRevisions)
+        .where(eq(elementTemplateRevisions.elementTemplateId, input.templateId));
+      const revisionNumber = (maxRows[0]?.value ?? 0) + 1;
+
+      const inserted = await tx
+        .insert(elementTemplateRevisions)
+        .values({
+          elementTemplateId: input.templateId,
+          revisionNumber,
+          assignable: input.assignable,
+          spatialClass,
+          borderColor: input.borderColor.toUpperCase(),
+          fillColor: input.fillColor.toUpperCase(),
+          createdByUserId: input.actorUserId,
+        })
+        .returning();
+      const revision = inserted[0]!;
+
+      await tx.insert(elementTemplateRevisionVertices).values(
+        normalized.map((vertex, sequence) => ({
+          elementTemplateRevisionId: revision.id,
+          sequence,
+          x: vertex.x,
+          y: vertex.y,
+        })),
+      );
+
+      // New revisions stay immutable and are not selected as current here.
+      return {
+        id: revision.id,
+        templateId: input.templateId,
+        revisionNumber,
+        assignable: input.assignable,
+        spatialClass,
+        borderColor: revision.borderColor,
+        fillColor: revision.fillColor,
+        vertices: normalized,
+        isCurrent: false,
+      };
+    });
+  }
+
+  private async requireTemplate(
+    tx: NodePgDatabase,
+    templateId: string,
+  ): Promise<{ id: string; currentRevisionId: string | null; archivedAt: Date | null }> {
+    const rows = await tx
+      .select({
+        id: elementTemplates.id,
+        currentRevisionId: elementTemplates.currentRevisionId,
+        archivedAt: elementTemplates.archivedAt,
+      })
+      .from(elementTemplates)
+      .where(eq(elementTemplates.id, templateId));
+    const template = rows[0];
+    if (!template) {
+      throw new TemplateError('template_not_found');
+    }
+    return template;
   }
 
   private async requireArriseOrgId(tx: NodePgDatabase): Promise<string> {

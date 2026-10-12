@@ -33,20 +33,43 @@ const templateView = z
     code: z.string(),
     name: z.string(),
     description: z.string(),
-    currentRevisionId: z.null(),
-    placeable: z.literal(false),
+    currentRevisionId: z.string().uuid().nullable(),
+    placeable: z.boolean(),
     archivedAt: z.string().datetime().nullable(),
   })
   .meta({
     description:
-      'Element Template identity. Newly created templates have no current revision and are not placeable.',
+      'Element Template identity. Placeable only when a current revision is selected.',
+  });
+
+const revisionView = z
+  .object({
+    id: z.string().uuid(),
+    templateId: z.string().uuid(),
+    revisionNumber: z.number().int().positive(),
+    assignable: z.boolean(),
+    spatialClass: z.enum(['PHYSICAL', 'ZONE', 'OBSTACLE']),
+    borderColor: z.string(),
+    fillColor: z.string(),
+    vertices: z.array(z.object({ x: z.number().int(), y: z.number().int() })),
+    isCurrent: z.boolean(),
+  })
+  .meta({
+    description:
+      'Immutable Template Revision. New revisions are not current until explicitly activated.',
   });
 
 const categoryListResponse = z.object({ categories: z.array(categoryView) });
 const templateListResponse = z.object({ templates: z.array(templateView) });
+const revisionListResponse = z.object({ revisions: z.array(revisionView) });
 
 const conflictResponse = z.object({
-  error: z.enum(['category_code_taken', 'category_archived', 'template_code_taken']),
+  error: z.enum([
+    'category_code_taken',
+    'category_archived',
+    'template_code_taken',
+    'template_archived',
+  ]),
 });
 
 const notFoundResponse = z.object({
@@ -61,6 +84,15 @@ const badRequestResponse = z.object({
     'invalid_template_code',
     'invalid_template_name',
     'organization_missing',
+    'invalid_spatial_class',
+    'invalid_assignability',
+    'invalid_color',
+    'invalid_vertex_coordinates',
+    'invalid_vertex_count',
+    'non_orthogonal_edge',
+    'zero_length_edge',
+    'duplicate_closing_vertex',
+    'repeated_vertex',
   ]),
 });
 
@@ -80,6 +112,7 @@ function templateErrorHttp(error: TemplateError): {
     case 'category_code_taken':
     case 'category_archived':
     case 'template_code_taken':
+    case 'template_archived':
       return { status: 409, body: { error: error.code } };
     default:
       return { status: 400, body: { error: error.code } };
@@ -289,6 +322,88 @@ export const templateRoutes: FastifyPluginAsync<TemplateRouteOptions> = async (a
           ...request.body,
         });
         return reply.code(201).send(template);
+      } catch (error) {
+        if (error instanceof TemplateError) {
+          const mapped = templateErrorHttp(error);
+          reply.statusCode = mapped.status;
+          return mapped.body as never;
+        }
+        throw error;
+      }
+    },
+  );
+
+  typedApp.get(
+    '/element-templates/:templateId/revisions',
+    {
+      preHandler: [authenticate, requireReader],
+      schema: {
+        operationId: 'listElementTemplateRevisions',
+        tags: ['templates'],
+        summary: 'List Template Revisions',
+        description: 'Lists immutable revisions for a Template. New revisions are not current by default.',
+        security: [],
+        params: z.object({ templateId: z.string().uuid() }),
+        response: {
+          200: revisionListResponse,
+          401: unauthorizedResponse,
+          403: forbiddenResponse,
+          404: notFoundResponse,
+        },
+      },
+    },
+    async (request, reply) => {
+      try {
+        return { revisions: await service.listRevisions(request.params.templateId) };
+      } catch (error) {
+        if (error instanceof TemplateError) {
+          const mapped = templateErrorHttp(error);
+          reply.statusCode = mapped.status;
+          return mapped.body as never;
+        }
+        throw error;
+      }
+    },
+  );
+
+  typedApp.post(
+    '/element-templates/:templateId/revisions',
+    {
+      preHandler: [authenticate, requireFacilities],
+      schema: {
+        operationId: 'createElementTemplateRevision',
+        tags: ['templates'],
+        summary: 'Create an immutable Template Revision',
+        description:
+          'Atomically creates the next revision number and normalized orthogonal vertices. ' +
+          'The revision is immutable and is not selected as current until activation.',
+        security: [],
+        params: z.object({ templateId: z.string().uuid() }),
+        body: z.object({
+          spatialClass: z.enum(['PHYSICAL', 'ZONE', 'OBSTACLE']),
+          assignable: z.boolean(),
+          borderColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
+          fillColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
+          vertices: z.array(z.object({ x: z.number().int(), y: z.number().int() })).min(4).max(100),
+        }),
+        response: {
+          201: revisionView,
+          400: badRequestResponse,
+          401: unauthorizedResponse,
+          403: forbiddenResponse,
+          404: notFoundResponse,
+          409: conflictResponse,
+        },
+      },
+    },
+    async (request, reply) => {
+      try {
+        const revision = await service.createRevision({
+          actorUserId: request.principal!.appUserId,
+          templateId: request.params.templateId,
+          ...request.body,
+        });
+        return reply.code(201).send(revision);
       } catch (error) {
         if (error instanceof TemplateError) {
           const mapped = templateErrorHttp(error);

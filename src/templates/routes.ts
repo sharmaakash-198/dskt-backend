@@ -73,7 +73,7 @@ const conflictResponse = z.object({
 });
 
 const notFoundResponse = z.object({
-  error: z.enum(['category_not_found', 'template_not_found']),
+  error: z.enum(['category_not_found', 'template_not_found', 'revision_not_found']),
 });
 
 const geometryDiagnostic = z.object({
@@ -121,6 +121,7 @@ function templateErrorHttp(error: TemplateError): {
   switch (error.code) {
     case 'category_not_found':
     case 'template_not_found':
+    case 'revision_not_found':
       return { status: 404, body: { error: error.code } };
     case 'category_code_taken':
     case 'category_archived':
@@ -422,6 +423,48 @@ export const templateRoutes: FastifyPluginAsync<TemplateRouteOptions> = async (a
           ...request.body,
         });
         return reply.code(201).send(revision);
+      } catch (error) {
+        if (error instanceof TemplateError) {
+          const mapped = templateErrorHttp(error);
+          reply.statusCode = mapped.status;
+          return mapped.body as never;
+        }
+        throw error;
+      }
+    },
+  );
+
+  typedApp.post(
+    '/element-templates/:templateId/revisions/:revisionId/activate',
+    {
+      preHandler: [authenticate, requireFacilities],
+      schema: {
+        operationId: 'activateElementTemplateRevision',
+        tags: ['templates'],
+        summary: 'Activate a Template Revision as current',
+        description:
+          'Sets current_revision_id for future placements. Does not mutate revision metadata, ' +
+          'geometry, or vertices. Existing placements remain pinned to their original revision.',
+        security: [],
+        params: z.object({
+          templateId: z.string().uuid(),
+          revisionId: z.string().uuid(),
+        }),
+        response: {
+          200: templateView,
+          401: unauthorizedResponse,
+          403: forbiddenResponse,
+          404: notFoundResponse,
+          409: conflictResponse,
+        },
+      },
+    },
+    async (request, reply) => {
+      try {
+        return await service.activateRevision({
+          templateId: request.params.templateId,
+          revisionId: request.params.revisionId,
+        });
       } catch (error) {
         if (error instanceof TemplateError) {
           const mapped = templateErrorHttp(error);

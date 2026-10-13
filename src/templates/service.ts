@@ -73,6 +73,7 @@ export class TemplateError extends Error {
       | 'template_code_taken'
       | 'template_not_found'
       | 'template_archived'
+      | 'revision_not_found'
       | 'invalid_spatial_class'
       | 'invalid_assignability'
       | 'invalid_color'
@@ -446,6 +447,50 @@ export class TemplateService {
         vertices: normalized,
         isCurrent: false,
       };
+    });
+  }
+
+  /**
+   * Selects an immutable revision as current for future placements.
+   * Only updates the Template pointer; never mutates revision rows or vertices.
+   */
+  async activateRevision(input: {
+    templateId: string;
+    revisionId: string;
+  }): Promise<TemplateView> {
+    return this.db.transaction(async (tx) => {
+      const locked = await tx
+        .select(templateColumns)
+        .from(elementTemplates)
+        .where(eq(elementTemplates.id, input.templateId))
+        .for('update');
+      const template = locked[0];
+      if (!template) {
+        throw new TemplateError('template_not_found');
+      }
+      if (template.archivedAt) {
+        throw new TemplateError('template_archived');
+      }
+
+      const revisionRows = await tx
+        .select({
+          id: elementTemplateRevisions.id,
+          elementTemplateId: elementTemplateRevisions.elementTemplateId,
+        })
+        .from(elementTemplateRevisions)
+        .where(eq(elementTemplateRevisions.id, input.revisionId));
+      const revision = revisionRows[0];
+      if (!revision || revision.elementTemplateId !== input.templateId) {
+        throw new TemplateError('revision_not_found');
+      }
+
+      const now = new Date();
+      const updated = await tx
+        .update(elementTemplates)
+        .set({ currentRevisionId: revision.id, updatedAt: now })
+        .where(eq(elementTemplates.id, input.templateId))
+        .returning(templateColumns);
+      return toTemplate(updated[0]!);
     });
   }
 

@@ -24,7 +24,7 @@
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.2",
-    "@fastify/cors": "^11.3.0",
+    "@fastify/cors": "^11.3.1",
     "@fastify/swagger": "^9.9.1",
     "argon2": "^0.45.1",
     "drizzle-orm": "^0.45.3",

@@ -57,6 +57,13 @@
       "when": 1760313600000,
       "tag": "0007_floor_plans",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1760400000000,
+      "tag": "0008_floor_boundaries",
+      "breakpoints": true
     }
   ]
 }

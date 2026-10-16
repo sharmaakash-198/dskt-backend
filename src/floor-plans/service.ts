@@ -7,11 +7,25 @@
  * - Creation produces revision 1 in Draft state with permitted 2ⁿ editing scale and non-negative concurrency version.
  * - Idempotent retry with the same key returns the existing plan and revision.
  * - Empty floor yields empty revision list without error.
+ * - Boundary editing: integer world coordinates (1 unit = 10 cm), normalized ordered vertices, implicit closure.
+ * - Rejects edits to non-Draft revisions or stale concurrency versions.
+ * - Changing editing scale updates scale/version without mutating physical geometry.
  */
 import { and, asc, eq } from 'drizzle-orm';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import type pg from 'pg';
-import { floorPlanRevisions, floorPlans, floors } from '../db/schema.js';
+import {
+  GeometryValidationError,
+  validateOrthogonalPolygon,
+  type GeometryDiagnostic,
+  type Vertex,
+} from '../geometry/orthogonal.js';
+import {
+  floorPlanRevisionBoundaryVertices,
+  floorPlanRevisions,
+  floorPlans,
+  floors,
+} from '../db/schema.js';
 
 export const PERMITTED_EDITING_SCALES = [1, 2, 4, 8, 16, 32, 64, 128, 256] as const;
 export type PermittedEditingScale = (typeof PERMITTED_EDITING_SCALES)[number];
@@ -32,6 +46,7 @@ export type FloorPlanRevisionView = {
   lifecycleState: FloorPlanLifecycleState;
   editingScale: number;
   concurrencyVersion: number;
+  boundary: Vertex[];
   createdAt: string;
   updatedAt: string;
 };
@@ -43,7 +58,12 @@ export class FloorPlanError extends Error {
       | 'floor_archived'
       | 'floor_plan_not_found'
       | 'floor_plan_already_exists'
-      | 'invalid_editing_scale',
+      | 'revision_not_found'
+      | 'revision_not_draft'
+      | 'concurrency_conflict'
+      | 'invalid_editing_scale'
+      | 'invalid_geometry',
+    readonly diagnostics: GeometryDiagnostic[] = [],
   ) {
     super(code);
     this.name = 'FloorPlanError';
@@ -63,7 +83,10 @@ function toPlanView(row: typeof floorPlans.$inferSelect): FloorPlanView {
   };
 }
 
-function toRevisionView(row: typeof floorPlanRevisions.$inferSelect): FloorPlanRevisionView {
+function toRevisionView(
+  row: typeof floorPlanRevisions.$inferSelect,
+  boundary: Vertex[] = [],
+): FloorPlanRevisionView {
   return {
     id: row.id,
     floorPlanId: row.floorPlanId,
@@ -71,6 +94,7 @@ function toRevisionView(row: typeof floorPlanRevisions.$inferSelect): FloorPlanR
     lifecycleState: row.lifecycleState as FloorPlanLifecycleState,
     editingScale: row.editingScale,
     concurrencyVersion: row.concurrencyVersion,
+    boundary,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -81,6 +105,20 @@ export class FloorPlanService {
 
   constructor(pool: pg.Pool) {
     this.db = drizzle(pool);
+  }
+
+  private async fetchBoundary(tx: NodePgDatabase, revisionId: string): Promise<Vertex[]> {
+    const rows = await tx
+      .select({
+        sequence: floorPlanRevisionBoundaryVertices.sequence,
+        x: floorPlanRevisionBoundaryVertices.x,
+        y: floorPlanRevisionBoundaryVertices.y,
+      })
+      .from(floorPlanRevisionBoundaryVertices)
+      .where(eq(floorPlanRevisionBoundaryVertices.floorPlanRevisionId, revisionId))
+      .orderBy(asc(floorPlanRevisionBoundaryVertices.sequence));
+
+    return rows.map((r) => ({ x: r.x, y: r.y }));
   }
 
   async createFloorPlan(input: {
@@ -121,9 +159,10 @@ export class FloorPlanService {
               ),
             );
           if (revisions[0]) {
+            const boundary = await this.fetchBoundary(tx, revisions[0].id);
             return {
               floorPlan: toPlanView(existing),
-              revision: toRevisionView(revisions[0]),
+              revision: toRevisionView(revisions[0], boundary),
               isReplay: true,
             };
           }
@@ -157,7 +196,7 @@ export class FloorPlanService {
 
       return {
         floorPlan: toPlanView(plan),
-        revision: toRevisionView(revision),
+        revision: toRevisionView(revision, []),
         isReplay: false,
       };
     });
@@ -183,7 +222,12 @@ export class FloorPlanService {
       .where(eq(floorPlanRevisions.floorPlanId, plan.id))
       .orderBy(asc(floorPlanRevisions.revisionNumber));
 
-    return rows.map(toRevisionView);
+    const results: FloorPlanRevisionView[] = [];
+    for (const row of rows) {
+      const boundary = await this.fetchBoundary(this.db, row.id);
+      results.push(toRevisionView(row, boundary));
+    }
+    return results;
   }
 
   async getFloorPlan(
@@ -207,12 +251,136 @@ export class FloorPlanService {
       .where(eq(floorPlanRevisions.floorPlanId, plan.id))
       .orderBy(asc(floorPlanRevisions.revisionNumber));
 
-    // For now, return the latest revision (revision 1)
     const active = revisions[revisions.length - 1];
+    let activeBoundary: Vertex[] = [];
+    if (active) {
+      activeBoundary = await this.fetchBoundary(this.db, active.id);
+    }
+
     return {
       floorPlan: toPlanView(plan),
-      activeRevision: active ? toRevisionView(active) : null,
+      activeRevision: active ? toRevisionView(active, activeBoundary) : null,
     };
+  }
+
+  async updateRevisionBoundary(input: {
+    floorId: string;
+    revisionId: string;
+    concurrencyVersion: number;
+    editingScale?: number;
+    vertices: Vertex[];
+  }): Promise<FloorPlanRevisionView> {
+    return this.db.transaction(async (tx) => {
+      await this.requireActiveFloor(tx, input.floorId);
+
+      const revisionRows = await tx
+        .select()
+        .from(floorPlanRevisions)
+        .where(eq(floorPlanRevisions.id, input.revisionId));
+
+      const revision = revisionRows[0];
+      if (!revision) {
+        throw new FloorPlanError('revision_not_found');
+      }
+
+      if (revision.lifecycleState !== 'DRAFT') {
+        throw new FloorPlanError('revision_not_draft');
+      }
+
+      if (revision.concurrencyVersion !== input.concurrencyVersion) {
+        throw new FloorPlanError('concurrency_conflict');
+      }
+
+      const scale = input.editingScale ?? revision.editingScale;
+      if (!isPermittedScale(scale)) {
+        throw new FloorPlanError('invalid_editing_scale');
+      }
+
+      let normalizedVertices: Vertex[];
+      try {
+        normalizedVertices = validateOrthogonalPolygon(input.vertices);
+      } catch (error) {
+        if (error instanceof GeometryValidationError) {
+          throw new FloorPlanError('invalid_geometry', error.diagnostics);
+        }
+        throw error;
+      }
+
+      // Delete old boundary vertices
+      await tx
+        .delete(floorPlanRevisionBoundaryVertices)
+        .where(eq(floorPlanRevisionBoundaryVertices.floorPlanRevisionId, revision.id));
+
+      // Insert validated normalized boundary vertices
+      for (let i = 0; i < normalizedVertices.length; i++) {
+        await tx.insert(floorPlanRevisionBoundaryVertices).values({
+          floorPlanRevisionId: revision.id,
+          sequence: i,
+          x: normalizedVertices[i]!.x,
+          y: normalizedVertices[i]!.y,
+        });
+      }
+
+      // Update concurrency version, editing scale, and timestamp
+      const updated = await tx
+        .update(floorPlanRevisions)
+        .set({
+          concurrencyVersion: revision.concurrencyVersion + 1,
+          editingScale: scale,
+          updatedAt: new Date(),
+        })
+        .where(eq(floorPlanRevisions.id, revision.id))
+        .returning();
+
+      return toRevisionView(updated[0]!, normalizedVertices);
+    });
+  }
+
+  async updateRevisionScale(input: {
+    floorId: string;
+    revisionId: string;
+    concurrencyVersion: number;
+    editingScale: number;
+  }): Promise<FloorPlanRevisionView> {
+    if (!isPermittedScale(input.editingScale)) {
+      throw new FloorPlanError('invalid_editing_scale');
+    }
+
+    return this.db.transaction(async (tx) => {
+      await this.requireActiveFloor(tx, input.floorId);
+
+      const revisionRows = await tx
+        .select()
+        .from(floorPlanRevisions)
+        .where(eq(floorPlanRevisions.id, input.revisionId));
+
+      const revision = revisionRows[0];
+      if (!revision) {
+        throw new FloorPlanError('revision_not_found');
+      }
+
+      if (revision.lifecycleState !== 'DRAFT') {
+        throw new FloorPlanError('revision_not_draft');
+      }
+
+      if (revision.concurrencyVersion !== input.concurrencyVersion) {
+        throw new FloorPlanError('concurrency_conflict');
+      }
+
+      const boundary = await this.fetchBoundary(tx, revision.id);
+
+      const updated = await tx
+        .update(floorPlanRevisions)
+        .set({
+          concurrencyVersion: revision.concurrencyVersion + 1,
+          editingScale: input.editingScale,
+          updatedAt: new Date(),
+        })
+        .where(eq(floorPlanRevisions.id, revision.id))
+        .returning();
+
+      return toRevisionView(updated[0]!, boundary);
+    });
   }
 
   private async requireActiveFloor(tx: NodePgDatabase, floorId: string): Promise<void> {

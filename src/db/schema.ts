@@ -323,3 +323,27 @@ export const floorPlanRevisions = dskt.table(
   ],
 );
 
+export const floorPlanRevisionBoundaryVertices = dskt.table(
+  'floor_plan_revision_boundary_vertices',
+  {
+    floorPlanRevisionId: uuid('floor_plan_revision_id')
+      .notNull()
+      .references(() => floorPlanRevisions.id, { onDelete: 'cascade' }),
+    sequence: integer('sequence').notNull(),
+    x: integer('x').notNull(),
+    y: integer('y').notNull(),
+  },
+  (table) => [
+    primaryKey({
+      name: 'floor_plan_revision_boundary_vertices_pk',
+      columns: [table.floorPlanRevisionId, table.sequence],
+    }),
+    unique('floor_plan_revision_boundary_vertices_xy_unique').on(
+      table.floorPlanRevisionId,
+      table.x,
+      table.y,
+    ),
+  ],
+);
+
+

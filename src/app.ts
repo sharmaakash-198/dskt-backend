@@ -16,6 +16,7 @@ import type { AppConfig } from './config.js';
 import { accessAdminRoutes } from './access-admin/routes.js';
 import { buildingRoutes } from './buildings/routes.js';
 import { floorRoutes } from './floors/routes.js';
+import { floorPlanRoutes } from './floor-plans/routes.js';
 import { siteRoutes } from './sites/routes.js';
 import { templateRoutes } from './templates/routes.js';
 import { LocalAuthProvider } from './auth/local-provider.js';
@@ -116,6 +117,7 @@ export async function buildApp(deps: AppDependencies): Promise<FastifyInstance> 
   await app.register(siteRoutes, { provider, pool: deps.pool });
   await app.register(buildingRoutes, { provider, pool: deps.pool });
   await app.register(floorRoutes, { provider, pool: deps.pool });
+  await app.register(floorPlanRoutes, { provider, pool: deps.pool });
   await app.register(templateRoutes, { provider, pool: deps.pool });
 
   app.get(

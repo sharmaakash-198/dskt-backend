@@ -279,3 +279,47 @@ export const elementTemplateRevisionVertices = dskt.table(
     ),
   ],
 );
+
+// ---------------------------------------------------------------------------
+// Floor Plans and Revisions
+// ---------------------------------------------------------------------------
+
+export const floorPlans = dskt.table(
+  'floor_plans',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    floorId: uuid('floor_id')
+      .notNull()
+      .references(() => floors.id),
+    idempotencyKey: text('idempotency_key'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [unique('floor_plans_floor_id_unique').on(table.floorId)],
+);
+
+export const floorPlanRevisions = dskt.table(
+  'floor_plan_revisions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    floorPlanId: uuid('floor_plan_id')
+      .notNull()
+      .references(() => floorPlans.id),
+    revisionNumber: integer('revision_number').notNull(),
+    lifecycleState: text('lifecycle_state').notNull(),
+    editingScale: integer('editing_scale').notNull(),
+    concurrencyVersion: integer('concurrency_version').notNull().default(0),
+    createdByUserId: uuid('created_by_user_id')
+      .notNull()
+      .references(() => appUsers.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('floor_plan_revisions_plan_id_revision_number_unique').on(
+      table.floorPlanId,
+      table.revisionNumber,
+    ),
+  ],
+);
+

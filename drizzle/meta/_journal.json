@@ -64,6 +64,20 @@
       "when": 1760400000000,
       "tag": "0008_floor_boundaries",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1760486400000,
+      "tag": "0009_placed_elements",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1760572800000,
+      "tag": "0010_editor_leases_commands",
+      "breakpoints": true
     }
   ]
 }

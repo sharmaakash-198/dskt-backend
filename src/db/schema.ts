@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   pgSchema,
   uuid,
@@ -8,6 +9,8 @@ import {
   timestamp,
   unique,
   primaryKey,
+  uniqueIndex,
+  index,
 } from 'drizzle-orm/pg-core';
 
 export const dskt = pgSchema('dskt');
@@ -345,5 +348,95 @@ export const floorPlanRevisionBoundaryVertices = dskt.table(
     ),
   ],
 );
+
+// ---------------------------------------------------------------------------
+// Placements and Placed Elements
+// ---------------------------------------------------------------------------
+
+export const placementIdentities = dskt.table('placement_identities', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  floorPlanId: uuid('floor_plan_id')
+    .notNull()
+    .references(() => floorPlans.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const placedElements = dskt.table(
+  'placed_elements',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    floorPlanRevisionId: uuid('floor_plan_revision_id')
+      .notNull()
+      .references(() => floorPlanRevisions.id, { onDelete: 'cascade' }),
+    placementIdentityId: uuid('placement_identity_id')
+      .notNull()
+      .references(() => placementIdentities.id, { onDelete: 'cascade' }),
+    elementTemplateRevisionId: uuid('element_template_revision_id')
+      .notNull()
+      .references(() => elementTemplateRevisions.id),
+    positionX: integer('position_x').notNull(),
+    positionY: integer('position_y').notNull(),
+    rotationDegrees: integer('rotation_degrees').notNull(),
+    label: text('label'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('placed_elements_revision_placement_identity_unique').on(
+      table.floorPlanRevisionId,
+      table.placementIdentityId,
+    ),
+    uniqueIndex('placed_elements_revision_label_unique')
+      .on(table.floorPlanRevisionId, table.label)
+      .where(sql`label IS NOT NULL`),
+  ],
+);
+
+export const floorPlanEditorLeases = dskt.table(
+  'floor_plan_editor_leases',
+  {
+    floorPlanRevisionId: uuid('floor_plan_revision_id')
+      .primaryKey()
+      .references(() => floorPlanRevisions.id, { onDelete: 'cascade' }),
+    appUserId: uuid('app_user_id')
+      .notNull()
+      .references(() => appUsers.id),
+    leaseTokenHash: text('lease_token_hash').notNull(),
+    acquiredAt: timestamp('acquired_at', { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    renewedAt: timestamp('renewed_at', { withTimezone: true }).notNull().defaultNow(),
+    releasedAt: timestamp('released_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('floor_plan_editor_leases_app_user_idx').on(table.appUserId),
+  ],
+);
+
+export const processedCommands = dskt.table(
+  'processed_commands',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    floorPlanRevisionId: uuid('floor_plan_revision_id')
+      .notNull()
+      .references(() => floorPlanRevisions.id, { onDelete: 'cascade' }),
+    clientCommandId: text('client_command_id').notNull(),
+    appUserId: uuid('app_user_id')
+      .notNull()
+      .references(() => appUsers.id),
+    commandType: text('command_type').notNull(),
+    requestHash: text('request_hash').notNull(),
+    responseStatus: integer('response_status').notNull(),
+    responseBody: text('response_body').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('processed_commands_revision_cmd_uidx').on(
+      table.floorPlanRevisionId,
+      table.clientCommandId,
+    ),
+  ],
+);
+
+
 
 

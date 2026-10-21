@@ -264,7 +264,30 @@ describe('edit floor boundary', () => {
         },
       });
       expect(staleRes.statusCode).toBe(409);
-      expect(staleRes.json()).toEqual({ error: 'concurrency_conflict' });
+      expect(staleRes.json()).toEqual({ error: 'concurrency_conflict', currentConcurrencyVersion: 0 });
+
+      // Fetch confirmed draft revision to recover latest state
+      const getRevRes = await app.inject({
+        method: 'GET',
+        url: `/floors/${floorId}/floor-plan/revisions/${revisionId}`,
+        headers,
+      });
+      expect(getRevRes.statusCode).toBe(200);
+      const confirmedRev = getRevRes.json().revision;
+      expect(confirmedRev.concurrencyVersion).toBe(0);
+
+      // Safe retry using confirmed concurrencyVersion succeeds
+      const retryRes = await app.inject({
+        method: 'PUT',
+        url: `/floors/${floorId}/floor-plan/revisions/${revisionId}/boundary`,
+        headers,
+        payload: {
+          concurrencyVersion: confirmedRev.concurrencyVersion,
+          vertices: validBoundary,
+        },
+      });
+      expect(retryRes.statusCode).toBe(200);
+      expect(retryRes.json().concurrencyVersion).toBe(1);
 
       // Change revision state to PUBLISHED directly in DB to test non-Draft rejection
       const db = drizzle(pool);

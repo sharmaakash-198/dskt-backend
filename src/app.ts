@@ -1,5 +1,6 @@
 import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
+import multipart from '@fastify/multipart';
 import swagger from '@fastify/swagger';
 import Fastify, { LogController, type FastifyInstance } from 'fastify';
 import {
@@ -19,9 +20,11 @@ import { floorRoutes } from './floors/routes.js';
 import { floorPlanRoutes } from './floor-plans/routes.js';
 import { siteRoutes } from './sites/routes.js';
 import { templateRoutes } from './templates/routes.js';
+import { workforceRoutes } from './workforce/routes.js';
 import { LocalAuthProvider } from './auth/local-provider.js';
 import { authRoutes } from './auth/routes.js';
 import { workspaceRoutes } from './workspace/routes.js';
+
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -80,16 +83,33 @@ export async function buildApp(deps: AppDependencies): Promise<FastifyInstance> 
     draining = true;
   });
 
+  const allowedOrigins = deps.config.CORS_ORIGIN.split(',').map((o) => o.trim());
   await app.register(cors, {
-    origin: deps.config.CORS_ORIGIN,
+    origin: allowedOrigins.length === 1 ? allowedOrigins[0]! : allowedOrigins,
     methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'X-Correlation-Id'],
+    allowedHeaders: [
+      'Content-Type',
+      'X-Correlation-Id',
+      'X-Lease-Token',
+      'X-Client-Command-Id',
+      'Idempotency-Key',
+      'idempotency-key',
+      'x-lease-token',
+      'x-client-command-id',
+    ],
     exposedHeaders: ['X-Correlation-Id'],
     credentials: true,
   });
 
   await app.register(cookie, {
     secret: deps.config.SESSION_SECRET,
+  });
+
+  await app.register(multipart, {
+    limits: {
+      fileSize: 10 * 1024 * 1024,
+      files: 1,
+    },
   });
 
   await app.register(swagger, {
@@ -119,6 +139,8 @@ export async function buildApp(deps: AppDependencies): Promise<FastifyInstance> 
   await app.register(floorRoutes, { provider, pool: deps.pool });
   await app.register(floorPlanRoutes, { provider, pool: deps.pool });
   await app.register(templateRoutes, { provider, pool: deps.pool });
+  await app.register(workforceRoutes, { provider, pool: deps.pool });
+
 
   app.get(
     '/health/live',

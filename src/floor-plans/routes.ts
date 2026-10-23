@@ -14,7 +14,11 @@ import { z } from 'zod/v4';
 import type { LocalAuthProvider } from '../auth/local-provider.js';
 import { requireAnyRole, requirePrincipal } from '../auth/permissions.js';
 import type { GeometryDiagnostic } from '../geometry/orthogonal.js';
-import { FloorPlanError, FloorPlanService } from './service.js';
+import {
+  FloorPlanError,
+  FloorPlanService,
+  type PublicationValidationError,
+} from './service.js';
 
 const unauthorizedResponse = z
   .object({ error: z.literal('unauthorized') })
@@ -77,6 +81,8 @@ const floorPlanRevisionView = z
     lifecycleState: z.enum(['DRAFT', 'PUBLISHED', 'ARCHIVED']),
     editingScale: z.number().int(),
     concurrencyVersion: z.number().int(),
+    publishedByUserId: z.string().uuid().nullable().optional(),
+    publishedAt: z.string().nullable().optional(),
     boundary: z.array(vertexSchema).default([]),
     placements: z.array(placedElementView).default([]),
     createdAt: z.string(),
@@ -107,8 +113,16 @@ const floorPlanDetailResponse = z
   .object({
     floorPlan: floorPlanView.nullable(),
     activeRevision: floorPlanRevisionView.nullable(),
+    publishedRevision: floorPlanRevisionView.nullable().optional(),
   })
-  .meta({ description: 'Floor Plan and its active revision, or nulls if floor has no plan.' });
+  .meta({ description: 'Floor Plan and its active and published revisions, or nulls if floor has no plan.' });
+
+const publishedFloorPlanResponse = z
+  .object({
+    floorPlan: floorPlanView,
+    revision: floorPlanRevisionView,
+  })
+  .meta({ description: 'Current Published Floor Plan and revision.' });
 
 const geometryDiagnosticSchema = z.object({
   code: z.string(),
@@ -117,9 +131,23 @@ const geometryDiagnosticSchema = z.object({
   edgeIndex: z.number().int().optional(),
 });
 
+const publicationValidationErrorSchema = z.object({
+  code: z.string(),
+  category: z.enum(['BOUNDARY', 'CONTAINMENT', 'COLLISION', 'TEMPLATE', 'LABEL', 'LIFECYCLE']),
+  entityType: z.enum(['BOUNDARY', 'PLACEMENT', 'REVISION', 'FLOOR']),
+  entityId: z.string(),
+  conflictingEntityId: z.string().optional(),
+  message: z.string(),
+  correctiveAction: z.string(),
+  vertexIndex: z.number().int().optional(),
+  edgeIndex: z.number().int().optional(),
+  details: z.record(z.string(), z.unknown()).optional(),
+});
+
 const badRequestResponse = z.object({
   error: z.string(),
   diagnostics: z.array(geometryDiagnosticSchema).optional(),
+  validationErrors: z.array(publicationValidationErrorSchema).optional(),
 });
 
 const notFoundResponse = z.object({
@@ -127,6 +155,7 @@ const notFoundResponse = z.object({
     'floor_not_found',
     'floor_plan_not_found',
     'revision_not_found',
+    'published_revision_not_found',
     'template_revision_not_found',
     'placement_not_found',
     'lease_not_found',
@@ -136,6 +165,8 @@ const notFoundResponse = z.object({
 const conflictResponse = z.object({
   error: z.enum([
     'floor_archived',
+    'building_archived',
+    'site_archived',
     'template_archived',
     'floor_plan_already_exists',
     'revision_not_draft',
@@ -176,23 +207,44 @@ const floorPlanLeaseStateViewSchema = z
   })
   .meta({ description: 'State of an editor lease relative to the caller.' });
 
+const publicationValidationResponse = z
+  .object({
+    isValid: z.boolean(),
+    ready: z.boolean(),
+    floorId: z.string().uuid(),
+    revisionId: z.string().uuid(),
+    concurrencyVersion: z.number().int(),
+    summary: z.string(),
+    errors: z.array(publicationValidationErrorSchema),
+    warnings: z.array(publicationValidationErrorSchema),
+  })
+  .meta({ description: 'Authoritative publication validation result for a draft floor plan revision.' });
+
 export type FloorPlanRouteOptions = {
   provider: LocalAuthProvider;
   pool: import('pg').Pool;
 };
 
 function floorPlanErrorHttp(error: FloorPlanError): {
-  status: 400 | 404 | 409;
-  body: { error: FloorPlanError['code']; diagnostics?: GeometryDiagnostic[] };
+  status: 400 | 403 | 404 | 409;
+  body: {
+    error: FloorPlanError['code'];
+    diagnostics?: GeometryDiagnostic[];
+    currentConcurrencyVersion?: number;
+    validationErrors?: PublicationValidationError[];
+  };
 } {
   switch (error.code) {
     case 'floor_not_found':
     case 'floor_plan_not_found':
     case 'revision_not_found':
+    case 'published_revision_not_found':
     case 'template_revision_not_found':
     case 'placement_not_found':
     case 'lease_not_found':
       return { status: 404, body: { error: error.code } };
+    case 'forbidden':
+      return { status: 403, body: { error: error.code } };
     case 'concurrency_conflict':
       return {
         status: 409,
@@ -205,6 +257,8 @@ function floorPlanErrorHttp(error: FloorPlanError): {
         },
       };
     case 'floor_archived':
+    case 'building_archived':
+    case 'site_archived':
     case 'template_archived':
     case 'floor_plan_already_exists':
     case 'revision_not_draft':
@@ -224,6 +278,16 @@ function floorPlanErrorHttp(error: FloorPlanError): {
       return { status: 400, body: { error: error.code } };
     case 'invalid_geometry':
       return { status: 400, body: { error: error.code, diagnostics: error.diagnostics } };
+    case 'publication_validation_failed':
+      return {
+        status: 400,
+        body: {
+          error: error.code,
+          validationErrors: Array.isArray(error.details?.errors)
+            ? (error.details.errors as PublicationValidationError[])
+            : undefined,
+        },
+      };
   }
 }
 
@@ -231,6 +295,7 @@ export const floorPlanRoutes: FastifyPluginAsync<FloorPlanRouteOptions> = async 
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
   const authenticate = requirePrincipal(opts.provider);
   const requireFacilities = requireAnyRole('FACILITIES_ADMIN');
+  const requireReader = requireAnyRole('FACILITIES_ADMIN', 'WORKPLACE_PLANNER', 'VIEWER');
   const service = new FloorPlanService(opts.pool);
 
   typedApp.post(
@@ -296,14 +361,15 @@ export const floorPlanRoutes: FastifyPluginAsync<FloorPlanRouteOptions> = async 
   typedApp.get(
     '/floors/:floorId/floor-plan/revisions',
     {
-      preHandler: [authenticate, requireFacilities],
+      preHandler: [authenticate, requireReader],
       schema: {
         operationId: 'listFloorPlanRevisions',
         tags: ['floor-plans'],
         summary: 'List Floor Plan Revisions',
         description:
-          'Lists all revisions for a floor plan with lifecycle states (Draft, Published, Archived). ' +
-          'Returns an empty list for an empty floor without error.',
+          'Lists revisions for a floor plan with lifecycle states (Draft, Published, Archived). ' +
+          'Facilities Admin can inspect Draft, Published, and Archived revisions. Workplace Planner and Viewer ' +
+          'receive only permitted immutable Published revisions. Returns an empty list for an empty floor without error.',
         security: [],
         params: z.object({ floorId: z.string().uuid() }),
         response: {
@@ -317,7 +383,7 @@ export const floorPlanRoutes: FastifyPluginAsync<FloorPlanRouteOptions> = async 
     },
     async (request, reply) => {
       try {
-        const revisions = await service.listRevisions(request.params.floorId);
+        const revisions = await service.listRevisions(request.params.floorId, request.principal);
         return { revisions };
       } catch (error) {
         if (error instanceof FloorPlanError) {
@@ -333,12 +399,14 @@ export const floorPlanRoutes: FastifyPluginAsync<FloorPlanRouteOptions> = async 
   typedApp.get(
     '/floors/:floorId/floor-plan/revisions/:revisionId',
     {
-      preHandler: [authenticate, requireFacilities],
+      preHandler: [authenticate, requireReader],
       schema: {
         operationId: 'getFloorPlanRevision',
         tags: ['floor-plans'],
         summary: 'Get Floor Plan revision details',
-        description: 'Retrieves a single floor plan revision with boundary and placements.',
+        description:
+          'Retrieves a single floor plan revision with boundary and placements. ' +
+          'Workplace Planner and Viewer callers can access the Published revision; Draft and Archived revisions are denied (403).',
         security: [],
         params: z.object({
           floorId: z.string().uuid(),
@@ -355,8 +423,132 @@ export const floorPlanRoutes: FastifyPluginAsync<FloorPlanRouteOptions> = async 
     },
     async (request, reply) => {
       try {
-        const revision = await service.getRevision(request.params.floorId, request.params.revisionId);
+        const revision = await service.getRevision(
+          request.params.floorId,
+          request.params.revisionId,
+          request.principal,
+        );
         return { revision };
+      } catch (error) {
+        if (error instanceof FloorPlanError) {
+          const mapped = floorPlanErrorHttp(error);
+          reply.statusCode = mapped.status;
+          return mapped.body as never;
+        }
+        throw error;
+      }
+    },
+  );
+
+  typedApp.post(
+    '/floors/:floorId/floor-plan/revisions/:revisionId/validate',
+    {
+      preHandler: [authenticate, requireFacilities],
+      schema: {
+        operationId: 'validateFloorPlanDraft',
+        tags: ['floor-plans'],
+        summary: 'Run authoritative publication validation on a draft floor plan revision',
+        description:
+          'Evaluates floor boundary structure, transformed placement geometry, containment, mutual collisions, ' +
+          'template references, labels, and lifecycle preconditions without mutating the revision.',
+        security: [],
+        params: z.object({
+          floorId: z.string().uuid(),
+          revisionId: z.string().uuid(),
+        }),
+        body: z
+          .object({
+            concurrencyVersion: z.number().int().optional(),
+          })
+          .nullable()
+          .optional(),
+        response: {
+          200: publicationValidationResponse,
+          400: badRequestResponse,
+          401: unauthorizedResponse,
+          403: forbiddenResponse,
+          404: notFoundResponse,
+          409: conflictResponse,
+        },
+      },
+    },
+    async (request, reply) => {
+      try {
+        const result = await service.validateDraftForPublication({
+          floorId: request.params.floorId,
+          revisionId: request.params.revisionId,
+          concurrencyVersion: request.body?.concurrencyVersion,
+          actorUserId: request.principal!.appUserId,
+        });
+
+        return reply.code(200).send(result);
+      } catch (error) {
+        if (error instanceof FloorPlanError) {
+          const mapped = floorPlanErrorHttp(error);
+          reply.statusCode = mapped.status;
+          return mapped.body as never;
+        }
+        throw error;
+      }
+    },
+  );
+
+  typedApp.post(
+    '/floors/:floorId/floor-plan/revisions/:revisionId/publish',
+    {
+      preHandler: [authenticate, requireFacilities],
+      schema: {
+        operationId: 'publishFloorPlanRevision',
+        tags: ['floor-plans'],
+        summary: 'Publish a draft floor plan revision as the immutable published revision',
+        description:
+          'Authoritatively validates the draft, archives any prior published revision, and transitions this draft to Published in a single transaction.',
+        security: [],
+        params: z.object({
+          floorId: z.string().uuid(),
+          revisionId: z.string().uuid(),
+        }),
+        headers: z
+          .object({
+            'x-lease-token': z.string().optional(),
+            'x-client-command-id': z.string().optional(),
+          })
+          .passthrough()
+          .optional(),
+        body: z.object({
+          concurrencyVersion: z.number().int(),
+          leaseToken: z.string().optional(),
+          clientCommandId: z.string().optional(),
+        }),
+        response: {
+          200: floorPlanRevisionDetailResponse,
+          400: badRequestResponse,
+          401: unauthorizedResponse,
+          403: forbiddenResponse,
+          404: notFoundResponse,
+          409: conflictResponse,
+        },
+      },
+    },
+    async (request, reply) => {
+      try {
+        const leaseToken =
+          request.body?.leaseToken ||
+          (request.headers['x-lease-token'] as string | undefined);
+        const clientCommandId =
+          request.body?.clientCommandId ||
+          (request.headers['x-client-command-id'] as string | undefined);
+
+        const revision = await service.publishRevision({
+          floorId: request.params.floorId,
+          revisionId: request.params.revisionId,
+          concurrencyVersion: request.body.concurrencyVersion,
+          actorUserId: request.principal!.appUserId,
+          leaseToken,
+          clientCommandId,
+        });
+
+        return reply.code(200).send({ revision });
       } catch (error) {
         if (error instanceof FloorPlanError) {
           const mapped = floorPlanErrorHttp(error);
@@ -371,14 +563,15 @@ export const floorPlanRoutes: FastifyPluginAsync<FloorPlanRouteOptions> = async 
   typedApp.get(
     '/floors/:floorId/floor-plan',
     {
-      preHandler: [authenticate, requireFacilities],
+      preHandler: [authenticate, requireReader],
       schema: {
         operationId: 'getFloorPlan',
         tags: ['floor-plans'],
         summary: 'Get Floor Plan details and active revision',
         description:
-          'Retrieves the Floor Plan identity and active revision for a floor. ' +
-          'Returns null values if the floor has no floor plan yet.',
+          'Retrieves the Floor Plan identity, active revision, and published revision for a floor. ' +
+          'For Facilities Admin, activeRevision defaults to Draft if present. For Workplace Planner and Viewer, ' +
+          'activeRevision is the Published revision (Draft geometry is never exposed). Returns null values if floor has no plan.',
         security: [],
         params: z.object({ floorId: z.string().uuid() }),
         response: {
@@ -392,7 +585,43 @@ export const floorPlanRoutes: FastifyPluginAsync<FloorPlanRouteOptions> = async 
     },
     async (request, reply) => {
       try {
-        return await service.getFloorPlan(request.params.floorId);
+        return await service.getFloorPlan(request.params.floorId, request.principal);
+      } catch (error) {
+        if (error instanceof FloorPlanError) {
+          const mapped = floorPlanErrorHttp(error);
+          reply.statusCode = mapped.status;
+          return mapped.body as never;
+        }
+        throw error;
+      }
+    },
+  );
+
+  typedApp.get(
+    '/floors/:floorId/floor-plan/published',
+    {
+      preHandler: [authenticate, requireReader],
+      schema: {
+        operationId: 'getPublishedFloorPlan',
+        tags: ['floor-plans'],
+        summary: 'Get current Published Floor Plan and revision',
+        description:
+          'Retrieves the immutable Published Floor Plan revision for an active floor. ' +
+          'Available to Facilities Admin, Workplace Planner, and Viewer callers.',
+        security: [],
+        params: z.object({ floorId: z.string().uuid() }),
+        response: {
+          200: publishedFloorPlanResponse,
+          401: unauthorizedResponse,
+          403: forbiddenResponse,
+          404: notFoundResponse,
+          409: conflictResponse,
+        },
+      },
+    },
+    async (request, reply) => {
+      try {
+        return await service.getPublishedFloorPlan(request.params.floorId);
       } catch (error) {
         if (error instanceof FloorPlanError) {
           const mapped = floorPlanErrorHttp(error);

@@ -18,16 +18,22 @@ import type pg from 'pg';
 import {
   GeometryValidationError,
   validateOrthogonalPolygon,
+  diagnoseOrthogonalPolygon,
   transformVertices,
   isPolygonInsideBoundary,
+  doPolygonsOverlap,
+  doSpatialClassesCollide,
   checkSpatialCollision,
   type SpatialClass,
   type GeometryDiagnostic,
+  type GeometryErrorCode,
   type Vertex,
 } from '../geometry/orthogonal.js';
+import { hasAnyRole, type RequestPrincipal } from '../auth/principal.js';
 import {
   appUsers,
   auditEvents,
+  buildings,
   elementTemplateRevisionVertices,
   elementTemplateRevisions,
   elementTemplates,
@@ -39,6 +45,7 @@ import {
   placedElements,
   placementIdentities,
   processedCommands,
+  sites,
 } from '../db/schema.js';
 
 export const PERMITTED_EDITING_SCALES = [1, 2, 4, 8, 16, 32, 64, 128, 256] as const;
@@ -165,10 +172,72 @@ export type FloorPlanRevisionView = {
   lifecycleState: FloorPlanLifecycleState;
   editingScale: number;
   concurrencyVersion: number;
+  publishedByUserId?: string | null;
+  publishedAt?: string | null;
   boundary: Vertex[];
   placements: PlacedElementView[];
   createdAt: string;
   updatedAt: string;
+};
+
+export type PublicationValidationErrorCode =
+  | 'missing_boundary'
+  | 'outside_boundary'
+  | 'placement_collision'
+  | 'template_archived'
+  | 'template_revision_not_found'
+  | 'duplicate_label'
+  | 'invalid_label'
+  | 'revision_not_draft'
+  | 'floor_archived'
+  | GeometryErrorCode;
+
+export type PublicationValidationCategory =
+  | 'BOUNDARY'
+  | 'CONTAINMENT'
+  | 'COLLISION'
+  | 'TEMPLATE'
+  | 'LABEL'
+  | 'LIFECYCLE';
+
+export type PublicationValidationError = {
+  code: PublicationValidationErrorCode;
+  category: PublicationValidationCategory;
+  entityType: 'BOUNDARY' | 'PLACEMENT' | 'REVISION' | 'FLOOR';
+  entityId: string;
+  conflictingEntityId?: string;
+  message: string;
+  correctiveAction: string;
+  vertexIndex?: number;
+  edgeIndex?: number;
+  details?: Record<string, unknown>;
+};
+
+export type PublicationValidationResult = {
+  isValid: boolean;
+  ready: boolean;
+  floorId: string;
+  revisionId: string;
+  concurrencyVersion: number;
+  summary: string;
+  errors: PublicationValidationError[];
+  warnings: PublicationValidationError[];
+};
+
+export type ValidateDraftInput = {
+  floorId: string;
+  revisionId: string;
+  concurrencyVersion?: number;
+  actorUserId?: string;
+};
+
+export type PublishRevisionInput = {
+  floorId: string;
+  revisionId: string;
+  concurrencyVersion: number;
+  actorUserId: string;
+  leaseToken?: string | null;
+  clientCommandId?: string | null;
 };
 
 export class FloorPlanError extends Error {
@@ -176,10 +245,14 @@ export class FloorPlanError extends Error {
     readonly code:
       | 'floor_not_found'
       | 'floor_archived'
+      | 'building_archived'
+      | 'site_archived'
       | 'floor_plan_not_found'
       | 'floor_plan_already_exists'
       | 'revision_not_found'
+      | 'published_revision_not_found'
       | 'revision_not_draft'
+      | 'forbidden'
       | 'concurrency_conflict'
       | 'invalid_editing_scale'
       | 'invalid_geometry'
@@ -197,7 +270,8 @@ export class FloorPlanError extends Error {
       | 'lease_invalid_token'
       | 'lease_expired'
       | 'lease_not_found'
-      | 'command_id_payload_mismatch',
+      | 'command_id_payload_mismatch'
+      | 'publication_validation_failed',
     readonly diagnostics: GeometryDiagnostic[] = [],
     readonly details?: Record<string, unknown>,
   ) {
@@ -250,6 +324,8 @@ function toRevisionView(
     lifecycleState: row.lifecycleState as FloorPlanLifecycleState,
     editingScale: row.editingScale,
     concurrencyVersion: row.concurrencyVersion,
+    publishedByUserId: row.publishedByUserId ?? null,
+    publishedAt: row.publishedAt ? row.publishedAt.toISOString() : null,
     boundary,
     placements,
     createdAt: row.createdAt.toISOString(),
@@ -359,7 +435,10 @@ export class FloorPlanService {
     });
   }
 
-  async listRevisions(floorId: string): Promise<FloorPlanRevisionView[]> {
+  async listRevisions(
+    floorId: string,
+    callerPrincipal?: RequestPrincipal,
+  ): Promise<FloorPlanRevisionView[]> {
     await this.requireActiveFloor(this.db, floorId);
 
     const planRows = await this.db
@@ -373,10 +452,21 @@ export class FloorPlanService {
       return [];
     }
 
+    const isFacilitiesAdmin = callerPrincipal
+      ? hasAnyRole(callerPrincipal, ['FACILITIES_ADMIN'])
+      : true;
+
+    const baseWhere = isFacilitiesAdmin
+      ? eq(floorPlanRevisions.floorPlanId, plan.id)
+      : and(
+          eq(floorPlanRevisions.floorPlanId, plan.id),
+          eq(floorPlanRevisions.lifecycleState, 'PUBLISHED'),
+        );
+
     const rows = await this.db
       .select()
       .from(floorPlanRevisions)
-      .where(eq(floorPlanRevisions.floorPlanId, plan.id))
+      .where(baseWhere)
       .orderBy(asc(floorPlanRevisions.revisionNumber));
 
     const results: FloorPlanRevisionView[] = [];
@@ -390,7 +480,12 @@ export class FloorPlanService {
 
   async getFloorPlan(
     floorId: string,
-  ): Promise<{ floorPlan: FloorPlanView | null; activeRevision: FloorPlanRevisionView | null }> {
+    callerPrincipal?: RequestPrincipal,
+  ): Promise<{
+    floorPlan: FloorPlanView | null;
+    activeRevision: FloorPlanRevisionView | null;
+    publishedRevision?: FloorPlanRevisionView | null;
+  }> {
     await this.requireActiveFloor(this.db, floorId);
 
     const planRows = await this.db
@@ -400,7 +495,7 @@ export class FloorPlanService {
 
     const plan = planRows[0];
     if (!plan) {
-      return { floorPlan: null, activeRevision: null };
+      return { floorPlan: null, activeRevision: null, publishedRevision: null };
     }
 
     const revisions = await this.db
@@ -409,21 +504,83 @@ export class FloorPlanService {
       .where(eq(floorPlanRevisions.floorPlanId, plan.id))
       .orderBy(asc(floorPlanRevisions.revisionNumber));
 
-    const active = revisions[revisions.length - 1];
-    let activeBoundary: Vertex[] = [];
-    let activePlacements: PlacedElementView[] = [];
-    if (active) {
-      activeBoundary = await this.fetchBoundary(this.db, active.id);
-      activePlacements = await this.listPlacementsInternal(this.db, active.id);
+    const publishedRow = revisions.find((r) => r.lifecycleState === 'PUBLISHED');
+    const draftRow = revisions.find((r) => r.lifecycleState === 'DRAFT');
+
+    let publishedRevisionView: FloorPlanRevisionView | null = null;
+    if (publishedRow) {
+      const publishedBoundary = await this.fetchBoundary(this.db, publishedRow.id);
+      const publishedPlacements = await this.listPlacementsInternal(this.db, publishedRow.id);
+      publishedRevisionView = toRevisionView(publishedRow, publishedBoundary, publishedPlacements);
+    }
+
+    const isFacilitiesAdmin = callerPrincipal
+      ? hasAnyRole(callerPrincipal, ['FACILITIES_ADMIN'])
+      : true;
+
+    let activeRevisionView: FloorPlanRevisionView | null;
+    if (isFacilitiesAdmin) {
+      if (draftRow) {
+        const draftBoundary = await this.fetchBoundary(this.db, draftRow.id);
+        const draftPlacements = await this.listPlacementsInternal(this.db, draftRow.id);
+        activeRevisionView = toRevisionView(draftRow, draftBoundary, draftPlacements);
+      } else {
+        activeRevisionView = publishedRevisionView;
+      }
+    } else {
+      activeRevisionView = publishedRevisionView;
     }
 
     return {
       floorPlan: toPlanView(plan),
-      activeRevision: active ? toRevisionView(active, activeBoundary, activePlacements) : null,
+      activeRevision: activeRevisionView,
+      publishedRevision: publishedRevisionView,
     };
   }
 
-  async getRevision(floorId: string, revisionId: string): Promise<FloorPlanRevisionView> {
+  async getPublishedFloorPlan(
+    floorId: string,
+  ): Promise<{ floorPlan: FloorPlanView; revision: FloorPlanRevisionView }> {
+    await this.requireActiveFloor(this.db, floorId);
+
+    const planRows = await this.db
+      .select()
+      .from(floorPlans)
+      .where(eq(floorPlans.floorId, floorId));
+
+    const plan = planRows[0];
+    if (!plan) {
+      throw new FloorPlanError('floor_plan_not_found');
+    }
+
+    const pubRows = await this.db
+      .select()
+      .from(floorPlanRevisions)
+      .where(
+        and(
+          eq(floorPlanRevisions.floorPlanId, plan.id),
+          eq(floorPlanRevisions.lifecycleState, 'PUBLISHED'),
+        ),
+      );
+
+    const published = pubRows[0];
+    if (!published) {
+      throw new FloorPlanError('published_revision_not_found');
+    }
+
+    const boundary = await this.fetchBoundary(this.db, published.id);
+    const placements = await this.listPlacementsInternal(this.db, published.id);
+    return {
+      floorPlan: toPlanView(plan),
+      revision: toRevisionView(published, boundary, placements),
+    };
+  }
+
+  async getRevision(
+    floorId: string,
+    revisionId: string,
+    callerPrincipal?: RequestPrincipal,
+  ): Promise<FloorPlanRevisionView> {
     await this.requireActiveFloor(this.db, floorId);
 
     const planRows = await this.db
@@ -449,6 +606,16 @@ export class FloorPlanService {
     const revision = revRows[0];
     if (!revision) {
       throw new FloorPlanError('revision_not_found');
+    }
+
+    const isFacilitiesAdmin = callerPrincipal
+      ? hasAnyRole(callerPrincipal, ['FACILITIES_ADMIN'])
+      : true;
+
+    if (!isFacilitiesAdmin) {
+      if (revision.lifecycleState === 'DRAFT' || revision.lifecycleState === 'ARCHIVED') {
+        throw new FloorPlanError('forbidden');
+      }
     }
 
     const boundary = await this.fetchBoundary(this.db, revision.id);
@@ -1157,8 +1324,15 @@ export class FloorPlanService {
 
   private async requireActiveFloor(tx: NodePgDatabase, floorId: string): Promise<void> {
     const rows = await tx
-      .select({ id: floors.id, archivedAt: floors.archivedAt })
+      .select({
+        id: floors.id,
+        archivedAt: floors.archivedAt,
+        buildingArchivedAt: buildings.archivedAt,
+        siteArchivedAt: sites.archivedAt,
+      })
       .from(floors)
+      .innerJoin(buildings, eq(floors.buildingId, buildings.id))
+      .innerJoin(sites, eq(buildings.siteId, sites.id))
       .where(eq(floors.id, floorId));
     const floor = rows[0];
     if (!floor) {
@@ -1166,6 +1340,12 @@ export class FloorPlanService {
     }
     if (floor.archivedAt) {
       throw new FloorPlanError('floor_archived');
+    }
+    if (floor.siteArchivedAt) {
+      throw new FloorPlanError('site_archived');
+    }
+    if (floor.buildingArchivedAt) {
+      throw new FloorPlanError('building_archived');
     }
   }
 
@@ -1696,6 +1876,425 @@ export class FloorPlanService {
         createdAt: row.createdAt.toISOString(),
         updatedAt: row.updatedAt.toISOString(),
       };
+    });
+  }
+
+
+  private async validateDraftForPublicationInternal(
+    tx: NodePgDatabase,
+    params: {
+      floor: typeof floors.$inferSelect;
+      revision: typeof floorPlanRevisions.$inferSelect;
+    },
+  ): Promise<PublicationValidationResult> {
+    const { floor, revision } = params;
+    const errors: PublicationValidationError[] = [];
+    const warnings: PublicationValidationError[] = [];
+
+    // Lifecycle Preconditions
+    if (floor.archivedAt !== null) {
+      errors.push({
+        code: 'floor_archived',
+        category: 'LIFECYCLE',
+        entityType: 'FLOOR',
+        entityId: floor.id,
+        message: `Floor "${floor.name}" (${floor.code}) is archived.`,
+        correctiveAction: 'Restore the floor before attempting publication.',
+      });
+    }
+
+    if (revision.lifecycleState !== 'DRAFT') {
+      errors.push({
+        code: 'revision_not_draft',
+        category: 'LIFECYCLE',
+        entityType: 'REVISION',
+        entityId: revision.id,
+        message: `Revision ${revision.revisionNumber} is in ${revision.lifecycleState} state and cannot be published.`,
+        correctiveAction: 'Only Draft revisions can be published. Create a new draft if further edits are required.',
+      });
+    }
+
+    // Floor Boundary structure
+    const boundaryVertices = await this.fetchBoundary(tx, revision.id);
+    let boundaryIsValid = false;
+
+    if (boundaryVertices.length === 0) {
+      errors.push({
+        code: 'missing_boundary',
+        category: 'BOUNDARY',
+        entityType: 'BOUNDARY',
+        entityId: revision.id,
+        message: 'The floor boundary is missing. A closed orthogonal boundary is required for publication.',
+        correctiveAction: 'Use the boundary editor to define and save a closed orthogonal floor boundary.',
+      });
+    } else {
+      const diagnostics = diagnoseOrthogonalPolygon(boundaryVertices);
+      if (diagnostics.length > 0) {
+        for (const diag of diagnostics) {
+          errors.push({
+            code: diag.code,
+            category: 'BOUNDARY',
+            entityType: 'BOUNDARY',
+            entityId: revision.id,
+            vertexIndex: diag.vertexIndex,
+            edgeIndex: diag.edgeIndex,
+            message: `Boundary geometry error: ${diag.message}`,
+            correctiveAction: 'Adjust the boundary vertices to ensure all edges are orthogonal, non-zero length, and non-self-intersecting in counter-clockwise order.',
+          });
+        }
+      } else {
+        boundaryIsValid = true;
+      }
+    }
+
+    // Placed Elements, Template references, containment & collision
+    const placements = await this.listPlacementsInternal(tx, revision.id);
+
+    for (const p of placements) {
+      // Template existence and active state check
+      const tmpl = await tx
+        .select({
+          id: elementTemplates.id,
+          code: elementTemplates.code,
+          name: elementTemplates.name,
+          archivedAt: elementTemplates.archivedAt,
+        })
+        .from(elementTemplates)
+        .where(eq(elementTemplates.id, p.templateId));
+
+      if (!tmpl[0]) {
+        errors.push({
+          code: 'template_revision_not_found',
+          category: 'TEMPLATE',
+          entityType: 'PLACEMENT',
+          entityId: p.id,
+          message: `Placement references template "${p.templateName}" which was not found.`,
+          correctiveAction: 'Reassign or remove this placement from the draft.',
+        });
+      } else if (tmpl[0].archivedAt !== null) {
+        errors.push({
+          code: 'template_archived',
+          category: 'TEMPLATE',
+          entityType: 'PLACEMENT',
+          entityId: p.id,
+          details: { templateId: tmpl[0].id, templateCode: tmpl[0].code },
+          message: `Placement references archived element template "${tmpl[0].name}" (${tmpl[0].code}).`,
+          correctiveAction: 'Restore the template in the Element Catalog or remove this placement from the draft.',
+        });
+      }
+
+      // Integer coordinate check
+      if (!Number.isInteger(p.positionX) || !Number.isInteger(p.positionY)) {
+        errors.push({
+          code: 'invalid_vertex_coordinates',
+          category: 'CONTAINMENT',
+          entityType: 'PLACEMENT',
+          entityId: p.id,
+          message: `Placement "${p.label || p.templateName}" has non-integer coordinates (${p.positionX}, ${p.positionY}).`,
+          correctiveAction: 'Snap the placement to integer coordinates aligned with the editing scale.',
+        });
+      }
+
+      // Boundary containment check
+      if (boundaryIsValid) {
+        if (!isPolygonInsideBoundary(p.vertices, boundaryVertices)) {
+          errors.push({
+            code: 'outside_boundary',
+            category: 'CONTAINMENT',
+            entityType: 'PLACEMENT',
+            entityId: p.id,
+            message: `Placement "${p.label || p.templateName}" extends outside the floor boundary.`,
+            correctiveAction: 'Move or rotate the space so it is completely contained within the floor boundary.',
+          });
+        }
+      }
+    }
+
+    // Spatial collisions between placements
+    for (let i = 0; i < placements.length; i++) {
+      const pA = placements[i]!;
+      for (let j = i + 1; j < placements.length; j++) {
+        const pB = placements[j]!;
+        if (doSpatialClassesCollide(pA.spatialClass, pB.spatialClass)) {
+          if (doPolygonsOverlap(pA.vertices, pB.vertices)) {
+            errors.push({
+              code: 'placement_collision',
+              category: 'COLLISION',
+              entityType: 'PLACEMENT',
+              entityId: pA.id,
+              conflictingEntityId: pB.id,
+              message: `Placement "${pA.label || pA.templateName}" collides with "${pB.label || pB.templateName}".`,
+              correctiveAction: 'Reposition spaces so that physical elements and obstacles do not intersect each other.',
+            });
+          }
+        }
+      }
+    }
+
+    // Label uniqueness and validity
+    const labelsSeen = new Map<string, string>();
+    for (const p of placements) {
+      if (p.label !== null) {
+        const trimmed = p.label.trim();
+        if (trimmed.length === 0) {
+          errors.push({
+            code: 'invalid_label',
+            category: 'LABEL',
+            entityType: 'PLACEMENT',
+            entityId: p.id,
+            message: `Placement has an empty or whitespace-only label.`,
+            correctiveAction: 'Provide a meaningful non-empty label or remove the label.',
+          });
+        } else {
+          const normalized = trimmed.toLowerCase();
+          const existingId = labelsSeen.get(normalized);
+          if (existingId) {
+            errors.push({
+              code: 'duplicate_label',
+              category: 'LABEL',
+              entityType: 'PLACEMENT',
+              entityId: p.id,
+              conflictingEntityId: existingId,
+              message: `Duplicate label "${p.label}" is used on multiple placements.`,
+              correctiveAction: 'Change the label so that each labeled space has a unique identifier.',
+            });
+          } else {
+            labelsSeen.set(normalized, p.id);
+          }
+        }
+      }
+    }
+
+    const isValid = errors.length === 0;
+    const ready = isValid;
+    const summary = ready
+      ? 'Draft revision is valid and ready for publication.'
+      : `Validation found ${errors.length} blocker(s) preventing publication.`;
+
+    return {
+      isValid,
+      ready,
+      floorId: floor.id,
+      revisionId: revision.id,
+      concurrencyVersion: revision.concurrencyVersion,
+      summary,
+      errors,
+      warnings,
+    };
+  }
+
+  async validateDraftForPublication(
+    input: ValidateDraftInput,
+  ): Promise<PublicationValidationResult> {
+    return this.db.transaction(async (tx) => {
+      // 1. Verify Floor exists
+      const floorRows = await tx
+        .select()
+        .from(floors)
+        .where(eq(floors.id, input.floorId));
+      const floor = floorRows[0];
+      if (!floor) {
+        throw new FloorPlanError('floor_not_found');
+      }
+
+      // 2. Verify Floor Plan exists
+      const planRows = await tx
+        .select()
+        .from(floorPlans)
+        .where(eq(floorPlans.floorId, input.floorId));
+      const plan = planRows[0];
+      if (!plan) {
+        throw new FloorPlanError('floor_plan_not_found');
+      }
+
+      // 3. Verify Revision exists
+      const revRows = await tx
+        .select()
+        .from(floorPlanRevisions)
+        .where(
+          and(
+            eq(floorPlanRevisions.id, input.revisionId),
+            eq(floorPlanRevisions.floorPlanId, plan.id),
+          ),
+        );
+      const revision = revRows[0];
+      if (!revision) {
+        throw new FloorPlanError('revision_not_found');
+      }
+
+      // 4. Stale concurrency check (if requested)
+      if (
+        input.concurrencyVersion !== undefined &&
+        revision.concurrencyVersion !== input.concurrencyVersion
+      ) {
+        throw new FloorPlanError('concurrency_conflict', [], {
+          currentConcurrencyVersion: revision.concurrencyVersion,
+        });
+      }
+
+      return await this.validateDraftForPublicationInternal(tx, { floor, revision });
+    });
+  }
+
+  async publishRevision(input: PublishRevisionInput): Promise<FloorPlanRevisionView> {
+    return await this.db.transaction(async (tx) => {
+      // 1. Verify Floor exists and is not archived
+      const floorRows = await tx
+        .select()
+        .from(floors)
+        .where(eq(floors.id, input.floorId));
+      const floor = floorRows[0];
+      if (!floor) {
+        throw new FloorPlanError('floor_not_found');
+      }
+      if (floor.archivedAt !== null) {
+        throw new FloorPlanError('floor_archived');
+      }
+
+      // 2. Lock Floor Plan row for update
+      const planRows = await tx
+        .select()
+        .from(floorPlans)
+        .where(eq(floorPlans.floorId, input.floorId))
+        .for('update');
+      const plan = planRows[0];
+      if (!plan) {
+        throw new FloorPlanError('floor_plan_not_found');
+      }
+
+      // 3. Lock target revision row for update
+      const revRows = await tx
+        .select()
+        .from(floorPlanRevisions)
+        .where(
+          and(
+            eq(floorPlanRevisions.id, input.revisionId),
+            eq(floorPlanRevisions.floorPlanId, plan.id),
+          ),
+        )
+        .for('update');
+      const revision = revRows[0];
+      if (!revision) {
+        throw new FloorPlanError('revision_not_found');
+      }
+
+      // 4. Check lease and clientCommandId
+      const commandCheck = await this.checkLeaseAndCommand(tx, {
+        revisionId: revision.id,
+        actorUserId: input.actorUserId,
+        leaseToken: input.leaseToken,
+        clientCommandId: input.clientCommandId,
+        commandType: 'PUBLISH',
+        requestPayload: {
+          floorId: input.floorId,
+          revisionId: input.revisionId,
+          concurrencyVersion: input.concurrencyVersion,
+        },
+      });
+
+      if (commandCheck.isReplay) {
+        return commandCheck.response as FloorPlanRevisionView;
+      }
+
+      // 5. Idempotent check: if already PUBLISHED, safe retry returns published view
+      if (revision.lifecycleState === 'PUBLISHED') {
+        const boundary = await this.fetchBoundary(tx, revision.id);
+        const placements = await this.listPlacementsInternal(tx, revision.id);
+        return toRevisionView(revision, boundary, placements);
+      }
+
+      if (revision.lifecycleState !== 'DRAFT') {
+        throw new FloorPlanError('revision_not_draft');
+      }
+
+      // 6. Concurrency version check
+      if (revision.concurrencyVersion !== input.concurrencyVersion) {
+        throw new FloorPlanError('concurrency_conflict', [], {
+          currentConcurrencyVersion: revision.concurrencyVersion,
+        });
+      }
+
+      // 7. Authoritative publication validation
+      const validation = await this.validateDraftForPublicationInternal(tx, { floor, revision });
+      if (!validation.ready || validation.errors.length > 0) {
+        throw new FloorPlanError('publication_validation_failed', [], {
+          errors: validation.errors,
+          validationResult: validation,
+        });
+      }
+
+      // 8. Lifecycle transition: archive previous Published revision if present
+      const priorPublishedRows = await tx
+        .select()
+        .from(floorPlanRevisions)
+        .where(
+          and(
+            eq(floorPlanRevisions.floorPlanId, plan.id),
+            eq(floorPlanRevisions.lifecycleState, 'PUBLISHED'),
+          ),
+        )
+        .for('update');
+      const priorPublished = priorPublishedRows[0];
+
+      const now = new Date();
+
+      if (priorPublished) {
+        await tx
+          .update(floorPlanRevisions)
+          .set({
+            lifecycleState: 'ARCHIVED',
+            updatedAt: now,
+          })
+          .where(eq(floorPlanRevisions.id, priorPublished.id));
+      }
+
+      // 9. Mark Draft as PUBLISHED with incremented concurrency version and publication metadata
+      const nextConcurrencyVersion = revision.concurrencyVersion + 1;
+      const updatedDraftRows = await tx
+        .update(floorPlanRevisions)
+        .set({
+          lifecycleState: 'PUBLISHED',
+          concurrencyVersion: nextConcurrencyVersion,
+          publishedByUserId: input.actorUserId,
+          publishedAt: now,
+          updatedAt: now,
+        })
+        .where(eq(floorPlanRevisions.id, revision.id))
+        .returning();
+      const publishedRevision = updatedDraftRows[0]!;
+
+      // 10. Cleanly release editor lease on this revision if one exists
+      await tx
+        .update(floorPlanEditorLeases)
+        .set({ releasedAt: now })
+        .where(eq(floorPlanEditorLeases.floorPlanRevisionId, revision.id));
+
+      // 11. Emit audit event
+      const userRows = await tx
+        .select({ displayName: appUsers.displayName })
+        .from(appUsers)
+        .where(eq(appUsers.id, input.actorUserId));
+      const userDisplayName = userRows[0]?.displayName ?? 'Facilities Admin';
+
+      await tx.insert(auditEvents).values({
+        actorUserId: input.actorUserId,
+        action: 'floor_plan.published',
+        targetType: 'FLOOR_PLAN_REVISION',
+        targetId: revision.id,
+        correlationId: revision.id,
+        summary: `User ${userDisplayName} published revision ${revision.revisionNumber} for floor "${floor.name}" (${floor.code})`,
+      });
+
+      // 12. Build view and record processed command
+      const boundary = await this.fetchBoundary(tx, revision.id);
+      const placements = await this.listPlacementsInternal(tx, revision.id);
+      const view = toRevisionView(publishedRevision, boundary, placements);
+
+      if (!commandCheck.isReplay) {
+        await commandCheck.recordSuccess(200, view);
+      }
+
+      return view;
     });
   }
 }

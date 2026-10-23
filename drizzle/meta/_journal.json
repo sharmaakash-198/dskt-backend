@@ -78,6 +78,21 @@
       "when": 1760572800000,
       "tag": "0010_editor_leases_commands",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1760659200000,
+      "tag": "0011_publish_floor_plan",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1760745600000,
+      "tag": "0012_employee_imports",
+      "breakpoints": true
     }
   ]
 }
+

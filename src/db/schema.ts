@@ -315,6 +315,8 @@ export const floorPlanRevisions = dskt.table(
     createdByUserId: uuid('created_by_user_id')
       .notNull()
       .references(() => appUsers.id),
+    publishedByUserId: uuid('published_by_user_id').references(() => appUsers.id),
+    publishedAt: timestamp('published_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -323,6 +325,12 @@ export const floorPlanRevisions = dskt.table(
       table.floorPlanId,
       table.revisionNumber,
     ),
+    uniqueIndex('floor_plan_revisions_one_draft_idx')
+      .on(table.floorPlanId)
+      .where(sql`lifecycle_state = 'DRAFT'`),
+    uniqueIndex('floor_plan_revisions_one_published_idx')
+      .on(table.floorPlanId)
+      .where(sql`lifecycle_state = 'PUBLISHED'`),
   ],
 );
 
@@ -437,6 +445,121 @@ export const processedCommands = dskt.table(
   ],
 );
 
+// ---------------------------------------------------------------------------
+// Workforce & Employee Imports
+// ---------------------------------------------------------------------------
 
+export const departments = dskt.table('departments', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  code: text('code').notNull().unique(),
+  name: text('name').notNull(),
+  active: boolean('active').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
 
+export const teams = dskt.table('teams', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  departmentId: uuid('department_id').references(() => departments.id),
+  code: text('code').notNull().unique(),
+  name: text('name').notNull(),
+  active: boolean('active').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
 
+export const employeeImports = dskt.table(
+  'employee_imports',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    uploadedByUserId: uuid('uploaded_by_user_id')
+      .notNull()
+      .references(() => appUsers.id),
+    originalFilename: text('original_filename').notNull(),
+    fileSha256: text('file_sha256').notNull(),
+    status: text('status').notNull(),
+    totalRows: integer('total_rows').notNull().default(0),
+    validRows: integer('valid_rows').notNull().default(0),
+    invalidRows: integer('invalid_rows').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    appliedAt: timestamp('applied_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('employee_imports_file_sha256_idx').on(table.fileSha256),
+    index('employee_imports_uploaded_by_idx').on(table.uploadedByUserId),
+  ],
+);
+
+export const employees = dskt.table(
+  'employees',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    employeeId: text('employee_id').notNull().unique(),
+    fullName: text('full_name').notNull(),
+    email: text('email').unique(),
+    managerEmployeeId: text('manager_employee_id'),
+    teamId: uuid('team_id').references(() => teams.id),
+    departmentId: uuid('department_id').references(() => departments.id),
+    preferredSiteId: uuid('preferred_site_id').references(() => sites.id),
+    jobTitle: text('job_title'),
+    employmentStatus: text('employment_status').notNull(),
+    active: boolean('active').notNull().default(true),
+    lastImportId: uuid('last_import_id').references(() => employeeImports.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('employees_employee_id_idx').on(table.employeeId),
+    index('employees_email_idx').on(table.email),
+    index('employees_team_id_idx').on(table.teamId),
+    index('employees_department_id_idx').on(table.departmentId),
+  ],
+);
+
+export const employeeImportRows = dskt.table(
+  'employee_import_rows',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    employeeImportId: uuid('employee_import_id')
+      .notNull()
+      .references(() => employeeImports.id, { onDelete: 'cascade' }),
+    rowNumber: integer('row_number').notNull(),
+    action: text('action').notNull(),
+    isValid: boolean('is_valid').notNull().default(true),
+    employeeId: text('employee_id'),
+    fullName: text('full_name'),
+    email: text('email'),
+    employmentStatus: text('employment_status'),
+    managerEmployeeId: text('manager_employee_id'),
+    teamCode: text('team_code'),
+    teamName: text('team_name'),
+    departmentCode: text('department_code'),
+    departmentName: text('department_name'),
+    preferredSiteCode: text('preferred_site_code'),
+    jobTitle: text('job_title'),
+    active: boolean('active'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('employee_import_rows_import_row_unique').on(table.employeeImportId, table.rowNumber),
+    index('employee_import_rows_import_idx').on(table.employeeImportId),
+    index('employee_import_rows_action_idx').on(table.employeeImportId, table.action),
+  ],
+);
+
+export const employeeImportRowErrors = dskt.table(
+  'employee_import_row_errors',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    employeeImportRowId: uuid('employee_import_row_id')
+      .notNull()
+      .references(() => employeeImportRows.id, { onDelete: 'cascade' }),
+    columnName: text('column_name'),
+    errorCode: text('error_code').notNull(),
+    message: text('message').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('employee_import_row_errors_row_idx').on(table.employeeImportRowId),
+  ],
+);

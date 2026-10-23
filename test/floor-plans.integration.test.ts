@@ -211,7 +211,7 @@ describe('floor plans and draft revisions', () => {
         headers,
       });
       expect(emptyDetail.statusCode).toBe(200);
-      expect(emptyDetail.json()).toEqual({ floorPlan: null, activeRevision: null });
+      expect(emptyDetail.json()).toEqual({ floorPlan: null, activeRevision: null, publishedRevision: null });
 
       // Create draft floor plan with scale 4 (permitted 2ⁿ)
       const created = await app.inject({
@@ -369,21 +369,50 @@ describe('floor plans and draft revisions', () => {
       });
       expect(created.statusCode).toBe(201);
 
-      // Read details denied to non-facilities
-      for (const headers of [sysHeaders, planHeaders, viewHeaders]) {
+      const draftRevId = created.json().revision.id;
+
+      // System Admin cannot read floor plans (requires FACILITIES_ADMIN, WORKPLACE_PLANNER, or VIEWER)
+      const sysGetRes = await app.inject({
+        method: 'GET',
+        url: `/floors/${floorId}/floor-plan`,
+        headers: sysHeaders,
+      });
+      expect(sysGetRes.statusCode).toBe(403);
+
+      const sysListRes = await app.inject({
+        method: 'GET',
+        url: `/floors/${floorId}/floor-plan/revisions`,
+        headers: sysHeaders,
+      });
+      expect(sysListRes.statusCode).toBe(403);
+
+      // Workplace Planner and Viewer can call floor-plan endpoints, but draft geometry is NEVER exposed
+      for (const headers of [planHeaders, viewHeaders]) {
         const getRes = await app.inject({
           method: 'GET',
           url: `/floors/${floorId}/floor-plan`,
           headers,
         });
-        expect(getRes.statusCode).toBe(403);
+        expect(getRes.statusCode).toBe(200);
+        // Active revision is null for planner/viewer because only draft exists, no published revision
+        expect(getRes.json().activeRevision).toBeNull();
+        expect(getRes.json().publishedRevision).toBeNull();
 
         const listRes = await app.inject({
           method: 'GET',
           url: `/floors/${floorId}/floor-plan/revisions`,
           headers,
         });
-        expect(listRes.statusCode).toBe(403);
+        expect(listRes.statusCode).toBe(200);
+        expect(listRes.json().revisions).toEqual([]);
+
+        // Direct access to draft revision geometry is strictly forbidden (403)
+        const draftGetRes = await app.inject({
+          method: 'GET',
+          url: `/floors/${floorId}/floor-plan/revisions/${draftRevId}`,
+          headers,
+        });
+        expect(draftGetRes.statusCode).toBe(403);
       }
     });
   });

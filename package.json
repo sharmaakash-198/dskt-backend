@@ -37,7 +37,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/argon2": "^0.14.1",
+    "@types/argon2": "^0.15.4",
     "@types/node": "^26.6.4",
     "@types/pg": "^8.23.1",
     "drizzle-kit": "^0.31.11",

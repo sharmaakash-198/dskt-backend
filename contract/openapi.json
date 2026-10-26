@@ -14774,7 +14774,34 @@
         "tags": [
           "workforce"
         ],
-        "description": "Confirm a ready employee import preview. Denies confirmation if the import has any blocking errors.",
+        "description": "Confirm a ready employee import preview and atomically apply all proposed employee changes. Rejects invalid, stale, or already applied imports.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "idempotencyKey": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 255
+                      },
+                      "expectedFileSha256": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        },
         "parameters": [
           {
             "schema": {

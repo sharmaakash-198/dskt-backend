@@ -172,30 +172,368 @@ export class WorkforceService {
   }
 
   /**
-   * Attempt confirmation of an import. Denies confirmation if the import has any
-   * blocking errors, is not in a READY state, or was already applied.
+   * Confirm and atomically apply a ready employee import.
+   * Creates, updates, manager relationships, teams, departments, and supported
+   * employment state changes occur in one transaction.
+   * Any failure rolls back every Employee change and leaves a diagnosable FAILED import state.
+   * Employees omitted from the workbook remain active and unchanged.
+   * Retry with the same idempotency key cannot apply an import twice.
+   * Emits an audit event and never logs or exposes individual workbook rows.
    */
-  async confirmImport(importId: string): Promise<EmployeeImportSummary> {
-    const importRecord = await this.getImport(importId);
-    if (!importRecord) {
-      throw new WorkforceError('not_found', 'Employee import not found.');
-    }
-    if (importRecord.status === 'INVALID' || importRecord.invalidRows > 0) {
-      throw new WorkforceError(
-        'cannot_confirm_invalid_import',
-        'An import with blocking errors cannot be confirmed.',
+  async confirmImport(
+    importId: string,
+    actorUserId: string,
+    options?: {
+      idempotencyKey?: string | null;
+      expectedFileSha256?: string | null;
+    },
+  ): Promise<EmployeeImportSummary> {
+    const dbClient = await this.pool.connect();
+
+    try {
+      await dbClient.query('BEGIN');
+
+      // 1. Lock import row FOR UPDATE
+      const importRes = await dbClient.query<{
+        id: string;
+        uploaded_by_user_id: string;
+        original_filename: string;
+        file_sha256: string;
+        status: string;
+        total_rows: number;
+        valid_rows: number;
+        invalid_rows: number;
+        created_at: Date;
+        applied_at: Date | null;
+        idempotency_key: string | null;
+      }>(
+        `
+        SELECT 
+          id, uploaded_by_user_id, original_filename, file_sha256,
+          status, total_rows, valid_rows, invalid_rows, created_at,
+          applied_at, idempotency_key
+        FROM dskt.employee_imports
+        WHERE id = $1
+        FOR UPDATE
+      `,
+        [importId],
       );
-    }
-    if (importRecord.status === 'APPLIED') {
-      throw new WorkforceError('already_applied', 'Import has already been applied.');
-    }
-    if (importRecord.status !== 'READY') {
-      throw new WorkforceError(
-        'import_not_ready',
-        'Import is not in a ready state for confirmation.',
+
+      if (importRes.rows.length === 0) {
+        await dbClient.query('ROLLBACK');
+        throw new WorkforceError('not_found', 'Employee import not found.');
+      }
+
+      const importRecord = importRes.rows[0]!;
+
+      // 2. Check if already applied
+      if (importRecord.status === 'APPLIED') {
+        // If idempotent retry with matching key, return existing applied summary
+        if (
+          options?.idempotencyKey &&
+          importRecord.idempotency_key &&
+          options.idempotencyKey === importRecord.idempotency_key
+        ) {
+          await dbClient.query('COMMIT');
+          return (await this.getImport(importId))!;
+        }
+        await dbClient.query('ROLLBACK');
+        throw new WorkforceError('already_applied', 'Import has already been applied.');
+      }
+
+      // 3. Check validity & readiness
+      if (importRecord.status === 'INVALID' || importRecord.invalid_rows > 0) {
+        await dbClient.query('ROLLBACK');
+        throw new WorkforceError(
+          'cannot_confirm_invalid_import',
+          'An import with blocking errors cannot be confirmed.',
+        );
+      }
+
+      if (importRecord.status !== 'READY') {
+        await dbClient.query('ROLLBACK');
+        throw new WorkforceError(
+          'import_not_ready',
+          `Import is in status '${importRecord.status}' and cannot be confirmed.`,
+        );
+      }
+
+      // 4. Stale checksum check
+      if (
+        options?.expectedFileSha256 &&
+        options.expectedFileSha256 !== importRecord.file_sha256
+      ) {
+        await dbClient.query('ROLLBACK');
+        throw new WorkforceError(
+          'stale_preview',
+          'Preview has changed or is stale (file checksum mismatch).',
+        );
+      }
+
+      // 5. Fetch staging rows for this import
+      const rowsRes = await dbClient.query<{
+        id: string;
+        row_number: number;
+        action: string;
+        is_valid: boolean;
+        employee_id: string | null;
+        full_name: string | null;
+        email: string | null;
+        employment_status: string | null;
+        manager_employee_id: string | null;
+        team_code: string | null;
+        team_name: string | null;
+        department_code: string | null;
+        department_name: string | null;
+        preferred_site_code: string | null;
+        job_title: string | null;
+        active: boolean | null;
+      }>(
+        `
+        SELECT 
+          id, row_number, action, is_valid, employee_id, full_name,
+          email, employment_status, manager_employee_id, team_code,
+          team_name, department_code, department_name, preferred_site_code,
+          job_title, active
+        FROM dskt.employee_import_rows
+        WHERE employee_import_id = $1
+        ORDER BY row_number ASC
+      `,
+        [importId],
       );
+
+      const stagingRows = rowsRes.rows;
+      if (stagingRows.length === 0) {
+        await dbClient.query('ROLLBACK');
+        throw new WorkforceError('empty_import', 'No staging rows found for import.');
+      }
+
+      // Validate all staging rows are valid
+      if (stagingRows.some((r) => !r.is_valid || r.action === 'INVALID')) {
+        await dbClient.query('ROLLBACK');
+        throw new WorkforceError(
+          'cannot_confirm_invalid_import',
+          'Import contains invalid rows and cannot be confirmed.',
+        );
+      }
+
+      // 6. Stale site validation: Check all referenced sites are still active
+      const referencedSiteCodes = Array.from(
+        new Set(stagingRows.map((r) => r.preferred_site_code).filter((c): c is string => Boolean(c))),
+      );
+
+      const siteMap = new Map<string, string>(); // code -> id
+      if (referencedSiteCodes.length > 0) {
+        const sitesRes = await dbClient.query<{ id: string; code: string }>(
+          `SELECT id, code FROM dskt.sites WHERE code = ANY($1) AND archived_at IS NULL`,
+          [referencedSiteCodes],
+        );
+        for (const s of sitesRes.rows) {
+          siteMap.set(s.code, s.id);
+        }
+        for (const code of referencedSiteCodes) {
+          if (!siteMap.has(code)) {
+            await dbClient.query('ROLLBACK');
+            throw new WorkforceError(
+              'stale_preview',
+              `Referenced site '${code}' is no longer active. Preview is stale.`,
+            );
+          }
+        }
+      }
+
+      // 7. Stale manager validation: Check all external referenced managers still exist
+      const importEmpIds = new Set(
+        stagingRows.map((r) => r.employee_id).filter((id): id is string => Boolean(id)),
+      );
+      const externalManagerIds = Array.from(
+        new Set(
+          stagingRows
+            .map((r) => r.manager_employee_id)
+            .filter((mgr): mgr is string => mgr !== null && !importEmpIds.has(mgr)),
+        ),
+      );
+
+      if (externalManagerIds.length > 0) {
+        const mgrRes = await dbClient.query<{ employee_id: string }>(
+          `SELECT employee_id FROM dskt.employees WHERE employee_id = ANY($1)`,
+          [externalManagerIds],
+        );
+        const existingMgrSet = new Set(mgrRes.rows.map((r) => r.employee_id));
+        for (const mgrId of externalManagerIds) {
+          if (!existingMgrSet.has(mgrId)) {
+            await dbClient.query('ROLLBACK');
+            throw new WorkforceError(
+              'stale_preview',
+              `Referenced manager '${mgrId}' no longer exists in employee directory. Preview is stale.`,
+            );
+          }
+        }
+      }
+
+      // 8. Atomic application
+      try {
+        // A. Upsert Departments
+        const departmentMap = new Map<string, string>(); // code -> id
+        const departmentsToUpsert = new Map<string, string>(); // code -> name
+        for (const row of stagingRows) {
+          if (row.department_code) {
+            const name = row.department_name || row.department_code;
+            departmentsToUpsert.set(row.department_code, name);
+          }
+        }
+
+        for (const [code, name] of departmentsToUpsert.entries()) {
+          const deptRes = await dbClient.query<{ id: string }>(
+            `
+            INSERT INTO dskt.departments (id, code, name, active, created_at, updated_at)
+            VALUES (gen_random_uuid(), $1, $2, true, NOW(), NOW())
+            ON CONFLICT (code) DO UPDATE
+            SET name = COALESCE(EXCLUDED.name, dskt.departments.name),
+                updated_at = NOW()
+            RETURNING id
+          `,
+            [code, name],
+          );
+          departmentMap.set(code, deptRes.rows[0]!.id);
+        }
+
+        // B. Upsert Teams
+        const teamMap = new Map<string, string>(); // code -> id
+        const teamsToUpsert = new Map<string, { name: string; deptCode: string | null }>();
+        for (const row of stagingRows) {
+          if (row.team_code) {
+            const name = row.team_name || row.team_code;
+            teamsToUpsert.set(row.team_code, {
+              name,
+              deptCode: row.department_code,
+            });
+          }
+        }
+
+        for (const [code, info] of teamsToUpsert.entries()) {
+          const deptId = info.deptCode ? departmentMap.get(info.deptCode) ?? null : null;
+          const teamRes = await dbClient.query<{ id: string }>(
+            `
+            INSERT INTO dskt.teams (id, department_id, code, name, active, created_at, updated_at)
+            VALUES (gen_random_uuid(), $1, $2, $3, true, NOW(), NOW())
+            ON CONFLICT (code) DO UPDATE
+            SET department_id = COALESCE(EXCLUDED.department_id, dskt.teams.department_id),
+                name = COALESCE(EXCLUDED.name, dskt.teams.name),
+                updated_at = NOW()
+            RETURNING id
+          `,
+            [deptId, code, info.name],
+          );
+          teamMap.set(code, teamRes.rows[0]!.id);
+        }
+
+        // C. Upsert Employees - Pass 1: Basic fields without manager_employee_id
+        // to avoid forward-reference FK constraint errors
+        for (const row of stagingRows) {
+          const deptId = row.department_code ? departmentMap.get(row.department_code) ?? null : null;
+          const tId = row.team_code ? teamMap.get(row.team_code) ?? null : null;
+          const sId = row.preferred_site_code ? siteMap.get(row.preferred_site_code) ?? null : null;
+          const isActive = row.active ?? (row.employment_status === 'ACTIVE');
+
+          await dbClient.query(
+            `
+            INSERT INTO dskt.employees (
+              id, employee_id, full_name, email, employment_status,
+              team_id, department_id, preferred_site_id, job_title,
+              active, last_import_id, created_at, updated_at
+            ) VALUES (
+              gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW()
+            )
+            ON CONFLICT (employee_id) DO UPDATE
+            SET full_name = EXCLUDED.full_name,
+                email = EXCLUDED.email,
+                employment_status = EXCLUDED.employment_status,
+                team_id = EXCLUDED.team_id,
+                department_id = EXCLUDED.department_id,
+                preferred_site_id = EXCLUDED.preferred_site_id,
+                job_title = EXCLUDED.job_title,
+                active = EXCLUDED.active,
+                last_import_id = EXCLUDED.last_import_id,
+                updated_at = NOW()
+          `,
+            [
+              row.employee_id,
+              row.full_name,
+              row.email,
+              row.employment_status,
+              tId,
+              deptId,
+              sId,
+              row.job_title,
+              isActive,
+              importId,
+            ],
+          );
+        }
+
+        // D. Employees - Pass 2: Set manager_employee_id
+        // All employees in the import and existing DB are now present in dskt.employees
+        for (const row of stagingRows) {
+          await dbClient.query(
+            `
+            UPDATE dskt.employees
+            SET manager_employee_id = $1,
+                updated_at = NOW()
+            WHERE employee_id = $2
+          `,
+            [row.manager_employee_id ?? null, row.employee_id],
+          );
+        }
+
+        // E. Update employee_imports status to APPLIED
+        const appliedAt = new Date();
+        await dbClient.query(
+          `
+          UPDATE dskt.employee_imports
+          SET status = 'APPLIED',
+              applied_at = $1,
+              idempotency_key = $2
+          WHERE id = $3
+        `,
+          [appliedAt, options?.idempotencyKey ?? null, importId],
+        );
+
+        // F. Audit Event emission (NO workbook rows / employee PII logged)
+        const correlationId = options?.idempotencyKey ?? randomUUID();
+        const safeSummary = `Confirmed employee import ${importId}: ${stagingRows.length} rows applied (${importRecord.total_rows} total, valid=${importRecord.valid_rows}).`;
+
+        await dbClient.query(
+          `
+          INSERT INTO dskt.audit_events (
+            id, occurred_at, actor_user_id, action, target_type, target_id,
+            correlation_id, summary
+          ) VALUES (gen_random_uuid(), NOW(), $1, 'employee_import.confirmed', 'employee_import', $2, $3, $4)
+        `,
+          [actorUserId, importId, correlationId, safeSummary],
+        );
+
+        await dbClient.query('COMMIT');
+      } catch (applyError) {
+        await dbClient.query('ROLLBACK');
+
+        // Any failure rolls back every Employee change and leaves a diagnosable import state (status = FAILED)
+        try {
+          await this.pool.query(
+            `UPDATE dskt.employee_imports SET status = 'FAILED' WHERE id = $1`,
+            [importId],
+          );
+        } catch {
+          // preserve original error
+        }
+
+        throw applyError;
+      }
+
+      return (await this.getImport(importId))!;
+    } finally {
+      dbClient.release();
     }
-    return importRecord;
   }
 
   /**

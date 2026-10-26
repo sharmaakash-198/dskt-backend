@@ -483,10 +483,12 @@ export const employeeImports = dskt.table(
     invalidRows: integer('invalid_rows').notNull().default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     appliedAt: timestamp('applied_at', { withTimezone: true }),
+    idempotencyKey: text('idempotency_key'),
   },
   (table) => [
     index('employee_imports_file_sha256_idx').on(table.fileSha256),
     index('employee_imports_uploaded_by_idx').on(table.uploadedByUserId),
+    index('employee_imports_idempotency_key_idx').on(table.idempotencyKey),
   ],
 );
 

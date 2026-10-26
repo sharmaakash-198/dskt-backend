@@ -233,7 +233,7 @@ export const workforceRoutes: FastifyPluginAsync<WorkforceRoutesOptions> = async
     },
   );
 
-  // 4. Confirm employee import (denies confirmation if import has any blocking errors)
+  // 4. Confirm employee import (atomically applies proposed employee changes)
   app.withTypeProvider<ZodTypeProvider>().post(
     '/employee-imports/:importId/confirm',
     {
@@ -243,10 +243,17 @@ export const workforceRoutes: FastifyPluginAsync<WorkforceRoutesOptions> = async
         tags: ['workforce'],
         summary: 'Confirm employee import',
         description:
-          'Confirm a ready employee import preview. Denies confirmation if the import has any blocking errors.',
+          'Confirm a ready employee import preview and atomically apply all proposed employee changes. Rejects invalid, stale, or already applied imports.',
         params: z.object({
           importId: z.string().uuid(),
         }),
+        body: z
+          .object({
+            idempotencyKey: z.string().min(1).max(255).optional(),
+            expectedFileSha256: z.string().optional(),
+          })
+          .nullable()
+          .optional(),
         response: {
           200: employeeImportSummarySchema,
           400: badRequestResponse,
@@ -258,16 +265,31 @@ export const workforceRoutes: FastifyPluginAsync<WorkforceRoutesOptions> = async
     },
     async (request, reply) => {
       const principal = request.principal!;
+      const idempotencyKey =
+        (request.headers['idempotency-key'] as string | undefined) ||
+        request.body?.idempotencyKey;
+      const expectedFileSha256 = request.body?.expectedFileSha256;
+
       try {
-        const summary = await service.confirmImport(request.params.importId);
+        const summary = await service.confirmImport(
+          request.params.importId,
+          principal.appUserId,
+          {
+            idempotencyKey,
+            expectedFileSha256,
+          },
+        );
 
         request.log.info(
           {
             importId: summary.id,
             status: summary.status,
             confirmedByUserId: principal.appUserId,
+            totalRows: summary.totalRows,
+            createCount: summary.createCount,
+            updateCount: summary.updateCount,
           },
-          'Employee import confirmation evaluated',
+          'Employee import confirmed',
         );
 
         return reply.code(200).send(summary);

@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { mkdir, readdir, stat, unlink, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import ExcelJS from 'exceljs';
 import type pg from 'pg';
 
@@ -110,8 +112,91 @@ function parseBoolean(val: string): boolean | null {
   return null;
 }
 
+export const DEFAULT_OPERATIONAL_RETENTION_MS = 24 * 60 * 60 * 1000; // 24 hours
+
 export class WorkforceService {
-  constructor(private readonly pool: pg.Pool) {}
+  private readonly uploadArtifactsDir: string;
+
+  constructor(
+    private readonly pool: pg.Pool,
+    options?: { uploadArtifactsDir?: string },
+  ) {
+    this.uploadArtifactsDir =
+      options?.uploadArtifactsDir ??
+      path.resolve(process.cwd(), '.uploads/workforce');
+  }
+
+  async saveUploadArtifact(importId: string, buffer: Buffer): Promise<string> {
+    await mkdir(this.uploadArtifactsDir, { recursive: true });
+    const filePath = path.join(this.uploadArtifactsDir, `${importId}.xlsx`);
+    await writeFile(filePath, buffer);
+    return filePath;
+  }
+
+  /**
+   * Remove raw upload artifacts older than the documented operational retention window.
+   * Safe metadata in dskt.employee_imports and relational diagnostics in
+   * dskt.employee_import_row_errors remain permanently retained for auditing and analysis.
+   */
+  async purgeExpiredUploadArtifacts(
+    retentionWindowMs = DEFAULT_OPERATIONAL_RETENTION_MS,
+  ): Promise<{ purgedCount: number; remainingCount: number }> {
+    try {
+      await mkdir(this.uploadArtifactsDir, { recursive: true });
+      const files = await readdir(this.uploadArtifactsDir);
+      const now = Date.now();
+      let purgedCount = 0;
+      let remainingCount = 0;
+
+      for (const file of files) {
+        if (!file.endsWith('.xlsx')) continue;
+        const filePath = path.join(this.uploadArtifactsDir, file);
+        try {
+          const fileStat = await stat(filePath);
+          const ageMs = now - fileStat.mtimeMs;
+          if (ageMs >= retentionWindowMs) {
+            await unlink(filePath);
+            purgedCount++;
+          } else {
+            remainingCount++;
+          }
+        } catch {
+          // File might have been concurrently deleted
+        }
+      }
+
+      return { purgedCount, remainingCount };
+    } catch {
+      return { purgedCount: 0, remainingCount: 0 };
+    }
+  }
+
+  /**
+   * Attempt confirmation of an import. Denies confirmation if the import has any
+   * blocking errors, is not in a READY state, or was already applied.
+   */
+  async confirmImport(importId: string): Promise<EmployeeImportSummary> {
+    const importRecord = await this.getImport(importId);
+    if (!importRecord) {
+      throw new WorkforceError('not_found', 'Employee import not found.');
+    }
+    if (importRecord.status === 'INVALID' || importRecord.invalidRows > 0) {
+      throw new WorkforceError(
+        'cannot_confirm_invalid_import',
+        'An import with blocking errors cannot be confirmed.',
+      );
+    }
+    if (importRecord.status === 'APPLIED') {
+      throw new WorkforceError('already_applied', 'Import has already been applied.');
+    }
+    if (importRecord.status !== 'READY') {
+      throw new WorkforceError(
+        'import_not_ready',
+        'Import is not in a ready state for confirmation.',
+      );
+    }
+    return importRecord;
+  }
 
   /**
    * Parse and validate an uploaded employee workbook, storing normalized relational
@@ -221,6 +306,7 @@ export class WorkforceService {
     // 5. Query active reference data for validation
     const client = await this.pool.connect();
     let existingSites: Set<string>;
+    let existingTeamDepartments: Map<string, string>;
     let existingEmployees: Map<
       string,
       {
@@ -243,6 +329,15 @@ export class WorkforceService {
         'SELECT code FROM dskt.sites WHERE archived_at IS NULL',
       );
       existingSites = new Set(sitesResult.rows.map((r) => r.code));
+
+      const teamsResult = await client.query<{ team_code: string; department_code: string }>(`
+        SELECT t.code as team_code, d.code as department_code
+        FROM dskt.teams t
+        JOIN dskt.departments d ON t.department_id = d.id
+      `);
+      existingTeamDepartments = new Map(
+        teamsResult.rows.map((r) => [r.team_code, r.department_code]),
+      );
 
       const employeesResult = await client.query<{
         id: string;
@@ -299,7 +394,7 @@ export class WorkforceService {
 
     // 6. Parse and validate rows
     const parsedRows: ParsedRow[] = [];
-    const seenEmployeeIds = new Map<string, number>(); // employeeId -> rowNumber
+    const seenEmployeeIds = new Map<string, number[]>(); // employeeId -> array of indices in parsedRows
     let processedRowCount = 0;
 
     for (let r = 2; r <= worksheet.rowCount; r++) {
@@ -325,13 +420,20 @@ export class WorkforceService {
       const rowErrors: RowError[] = [];
 
       // Formula inspection (reject and never execute)
-      row.eachCell({ includeEmpty: false }, (cell) => {
+      row.eachCell({ includeEmpty: false }, (cell, colNumber) => {
         if (
           cell.type === ExcelJS.ValueType.Formula ||
           (typeof cell.value === 'object' && cell.value !== null && 'formula' in cell.value)
         ) {
+          let colName: string | null = null;
+          for (const [key, num] of headerMap.entries()) {
+            if (num === colNumber) {
+              colName = key;
+              break;
+            }
+          }
           rowErrors.push({
-            columnName: null,
+            columnName: colName,
             errorCode: 'FORMULA_NOT_PERMITTED',
             message: 'Formula cells are rejected and never executed.',
           });
@@ -368,15 +470,9 @@ export class WorkforceService {
           message: 'Employee ID is required.',
         });
       } else {
-        if (seenEmployeeIds.has(employeeId)) {
-          rowErrors.push({
-            columnName: 'Employee ID',
-            errorCode: 'DUPLICATE_EMPLOYEE_ID',
-            message: `Duplicate Employee ID '${employeeId}' within the workbook.`,
-          });
-        } else {
-          seenEmployeeIds.set(employeeId, r);
-        }
+        const list = seenEmployeeIds.get(employeeId) ?? [];
+        list.push(parsedRows.length);
+        seenEmployeeIds.set(employeeId, list);
       }
 
       // Full Name validation
@@ -486,7 +582,22 @@ export class WorkforceService {
       });
     }
 
-    // 7. Cross-row manager reference and cycle validation
+    // 7. Duplicate employee IDs across the workbook
+    for (const [empId, indices] of seenEmployeeIds.entries()) {
+      if (indices.length > 1) {
+        for (const idx of indices) {
+          const targetRow = parsedRows[idx]!;
+          targetRow.errors.push({
+            columnName: 'Employee ID',
+            errorCode: 'DUPLICATE_EMPLOYEE_ID',
+            message: `Duplicate Employee ID '${empId}' within the workbook.`,
+          });
+          targetRow.isValid = false;
+        }
+      }
+    }
+
+    // 8. Cross-row manager reference and cycle validation
     // All referenced managers must exist in either the workbook or existingEmployees
     const workbookEmployeeIds = new Set(
       parsedRows.map((p) => p.employeeId).filter((id): id is string => id !== null),
@@ -546,7 +657,35 @@ export class WorkforceService {
       }
     }
 
-    // 8. Determine proposed action: CREATE, UPDATE, UNCHANGED, or INVALID
+    // 9. Team and department consistency validation
+    const workbookTeamDepartments = new Map<string, string>(); // teamCode -> departmentCode
+    for (const row of parsedRows) {
+      if (row.teamCode && row.departmentCode) {
+        const existingDept = existingTeamDepartments.get(row.teamCode);
+        if (existingDept && existingDept !== row.departmentCode) {
+          row.errors.push({
+            columnName: 'Team Code',
+            errorCode: 'CONFLICTING_TEAM_DEPARTMENT',
+            message: `Team '${row.teamCode}' belongs to department '${existingDept}', but was specified under department '${row.departmentCode}'.`,
+          });
+          row.isValid = false;
+        }
+
+        const wbDept = workbookTeamDepartments.get(row.teamCode);
+        if (wbDept && wbDept !== row.departmentCode) {
+          row.errors.push({
+            columnName: 'Team Code',
+            errorCode: 'CONFLICTING_TEAM_DEPARTMENT',
+            message: `Team '${row.teamCode}' is assigned to conflicting departments in the workbook.`,
+          });
+          row.isValid = false;
+        } else {
+          workbookTeamDepartments.set(row.teamCode, row.departmentCode);
+        }
+      }
+    }
+
+    // 10. Determine proposed action: CREATE, UPDATE, UNCHANGED, or INVALID
     let createCount = 0;
     let updateCount = 0;
     let unchangedCount = 0;
@@ -591,6 +730,9 @@ export class WorkforceService {
     const validRows = createCount + updateCount + unchangedCount;
     const status = invalidCount > 0 ? 'INVALID' : 'READY';
     const importId = randomUUID();
+
+    // Save temporary raw workbook artifact for the operational retention window
+    await this.saveUploadArtifact(importId, buffer);
 
     // 9. Persist metadata and normalized relational staging rows in a transaction
     // Strictly NO JSONB / NO generic payload column

@@ -232,4 +232,57 @@ export const workforceRoutes: FastifyPluginAsync<WorkforceRoutesOptions> = async
       });
     },
   );
+
+  // 4. Confirm employee import (denies confirmation if import has any blocking errors)
+  app.withTypeProvider<ZodTypeProvider>().post(
+    '/employee-imports/:importId/confirm',
+    {
+      preHandler: [requirePrincipal(options.provider), requireAnyRole('WORKPLACE_PLANNER')],
+      schema: {
+        operationId: 'confirmEmployeeImport',
+        tags: ['workforce'],
+        summary: 'Confirm employee import',
+        description:
+          'Confirm a ready employee import preview. Denies confirmation if the import has any blocking errors.',
+        params: z.object({
+          importId: z.string().uuid(),
+        }),
+        response: {
+          200: employeeImportSummarySchema,
+          400: badRequestResponse,
+          401: unauthorizedResponse,
+          403: forbiddenResponse,
+          404: notFoundResponse,
+        },
+      },
+    },
+    async (request, reply) => {
+      const principal = request.principal!;
+      try {
+        const summary = await service.confirmImport(request.params.importId);
+
+        request.log.info(
+          {
+            importId: summary.id,
+            status: summary.status,
+            confirmedByUserId: principal.appUserId,
+          },
+          'Employee import confirmation evaluated',
+        );
+
+        return reply.code(200).send(summary);
+      } catch (error) {
+        if (error instanceof WorkforceError) {
+          if (error.code === 'not_found') {
+            return reply.code(404).send({ error: 'not_found' });
+          }
+          return reply.code(400).send({
+            error: error.code,
+            message: error.message,
+          });
+        }
+        throw error;
+      }
+    },
+  );
 };

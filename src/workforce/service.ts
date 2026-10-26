@@ -3,6 +3,7 @@ import { mkdir, readdir, stat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import ExcelJS from 'exceljs';
 import type pg from 'pg';
+import type { RoleCode } from '../auth/principal.js';
 
 export class WorkforceError extends Error {
   constructor(
@@ -113,6 +114,141 @@ function parseBoolean(val: string): boolean | null {
 }
 
 export const DEFAULT_OPERATIONAL_RETENTION_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+export type SearchEmployeesOptions = {
+  q?: string;
+  departmentCode?: string;
+  teamCode?: string;
+  siteCode?: string;
+  employmentStatus?: string;
+  includeInactive?: boolean;
+  limit?: number;
+  offset?: number;
+};
+
+export type EmployeeDepartmentView = {
+  id: string;
+  code: string;
+  name: string;
+};
+
+export type EmployeeTeamView = {
+  id: string;
+  code: string;
+  name: string;
+};
+
+export type EmployeeSiteView = {
+  id: string;
+  code: string;
+  name: string;
+};
+
+export type EmployeeManagerView = {
+  employeeId: string;
+  fullName: string;
+};
+
+export type EmployeeDirectoryItem = {
+  id: string;
+  employeeId: string;
+  fullName: string;
+  jobTitle: string | null;
+  department: EmployeeDepartmentView | null;
+  team: EmployeeTeamView | null;
+  preferredSite: EmployeeSiteView | null;
+  email?: string | null;
+  employmentStatus?: string;
+  active?: boolean;
+  managerEmployeeId?: string | null;
+  manager?: EmployeeManagerView | null;
+};
+
+export function resolveEffectiveDirectoryRole(roles: RoleCode[]): RoleCode | null {
+  if (roles.includes('WORKPLACE_PLANNER')) {
+    return 'WORKPLACE_PLANNER';
+  }
+  if (roles.includes('VIEWER')) {
+    return 'VIEWER';
+  }
+  if (roles.includes('FACILITIES_ADMIN')) {
+    return 'FACILITIES_ADMIN';
+  }
+  return null;
+}
+
+function projectEmployeeRow(
+  row: {
+    id: string;
+    employee_id: string;
+    full_name: string;
+    email: string | null;
+    job_title: string | null;
+    employment_status: string;
+    active: boolean;
+    manager_employee_id: string | null;
+    manager_name: string | null;
+    department_id: string | null;
+    department_code: string | null;
+    department_name: string | null;
+    team_id: string | null;
+    team_code: string | null;
+    team_name: string | null;
+    site_id: string | null;
+    site_code: string | null;
+    site_name: string | null;
+  },
+  role: RoleCode,
+): EmployeeDirectoryItem {
+  const department =
+    row.department_id && row.department_code && row.department_name
+      ? { id: row.department_id, code: row.department_code, name: row.department_name }
+      : null;
+  const team =
+    row.team_id && row.team_code && row.team_name
+      ? { id: row.team_id, code: row.team_code, name: row.team_name }
+      : null;
+  const preferredSite =
+    row.site_id && row.site_code && row.site_name
+      ? { id: row.site_id, code: row.site_code, name: row.site_name }
+      : null;
+
+  const base: EmployeeDirectoryItem = {
+    id: row.id,
+    employeeId: row.employee_id,
+    fullName: row.full_name,
+    jobTitle: row.job_title,
+    department,
+    team,
+    preferredSite,
+  };
+
+  if (role === 'WORKPLACE_PLANNER') {
+    return {
+      ...base,
+      email: row.email,
+      employmentStatus: row.employment_status,
+      active: row.active,
+      managerEmployeeId: row.manager_employee_id,
+      manager: row.manager_employee_id
+        ? {
+            employeeId: row.manager_employee_id,
+            fullName: row.manager_name ?? row.manager_employee_id,
+          }
+        : null,
+    };
+  }
+
+  if (role === 'VIEWER') {
+    return {
+      ...base,
+      email: row.email,
+    };
+  }
+
+  // FACILITIES_ADMIN receives only employee summary data needed for map context
+  return base;
+}
 
 export class WorkforceService {
   private readonly uploadArtifactsDir: string;
@@ -1350,5 +1486,206 @@ export class WorkforceService {
     }));
 
     return { totalRows, rows };
+  }
+
+  /**
+   * Search employees in the directory with bounded pagination and role-projected fields.
+   * Viewer and Facilities Admin are strictly restricted to active employees.
+   */
+  async searchEmployees(
+    options: SearchEmployeesOptions,
+    role: RoleCode,
+  ): Promise<{ total: number; limit: number; offset: number; items: EmployeeDirectoryItem[] }> {
+    const limit = Math.min(Math.max(options.limit ?? 20, 1), 100);
+    const offset = Math.max(options.offset ?? 0, 0);
+
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+
+    // Inactive visibility rule:
+    // Only WORKPLACE_PLANNER can view inactive employees, and only when includeInactive is true
+    if (role === 'WORKPLACE_PLANNER' && options.includeInactive) {
+      // include inactive as well, no active filter
+    } else {
+      conditions.push('e.active = true');
+    }
+
+    if (options.q && options.q.trim().length > 0) {
+      const term = `%${options.q.trim()}%`;
+      params.push(term);
+      const p = params.length;
+      conditions.push(`(e.employee_id ILIKE $${p} OR e.full_name ILIKE $${p} OR e.email ILIKE $${p})`);
+    }
+
+    if (options.departmentCode && options.departmentCode.trim().length > 0) {
+      params.push(options.departmentCode.trim());
+      conditions.push(`d.code = $${params.length}`);
+    }
+
+    if (options.teamCode && options.teamCode.trim().length > 0) {
+      params.push(options.teamCode.trim());
+      conditions.push(`t.code = $${params.length}`);
+    }
+
+    if (options.siteCode && options.siteCode.trim().length > 0) {
+      params.push(options.siteCode.trim());
+      conditions.push(`s.code = $${params.length}`);
+    }
+
+    // employmentStatus filter is only honored for WORKPLACE_PLANNER
+    if (
+      role === 'WORKPLACE_PLANNER' &&
+      options.employmentStatus &&
+      options.employmentStatus.trim().length > 0
+    ) {
+      params.push(options.employmentStatus.trim());
+      conditions.push(`e.employment_status = $${params.length}`);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const countQuery = `
+      SELECT COUNT(*) as count
+      FROM dskt.employees e
+      LEFT JOIN dskt.departments d ON e.department_id = d.id
+      LEFT JOIN dskt.teams t ON e.team_id = t.id
+      LEFT JOIN dskt.sites s ON e.preferred_site_id = s.id
+      ${whereClause}
+    `;
+
+    const countResult = await this.pool.query<{ count: string }>(countQuery, params);
+    const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
+    const queryParams = [...params, limit, offset];
+    const limitParam = params.length + 1;
+    const offsetParam = params.length + 2;
+
+    const dataQuery = `
+      SELECT 
+        e.id,
+        e.employee_id,
+        e.full_name,
+        e.email,
+        e.job_title,
+        e.employment_status,
+        e.active,
+        e.manager_employee_id,
+        mgr.full_name AS manager_name,
+        d.id AS department_id,
+        d.code AS department_code,
+        d.name AS department_name,
+        t.id AS team_id,
+        t.code AS team_code,
+        t.name AS team_name,
+        s.id AS site_id,
+        s.code AS site_code,
+        s.name AS site_name
+      FROM dskt.employees e
+      LEFT JOIN dskt.employees mgr ON e.manager_employee_id = mgr.employee_id
+      LEFT JOIN dskt.departments d ON e.department_id = d.id
+      LEFT JOIN dskt.teams t ON e.team_id = t.id
+      LEFT JOIN dskt.sites s ON e.preferred_site_id = s.id
+      ${whereClause}
+      ORDER BY e.full_name ASC, e.employee_id ASC
+      LIMIT $${limitParam} OFFSET $${offsetParam}
+    `;
+
+    const rowsResult = await this.pool.query<{
+      id: string;
+      employee_id: string;
+      full_name: string;
+      email: string | null;
+      job_title: string | null;
+      employment_status: string;
+      active: boolean;
+      manager_employee_id: string | null;
+      manager_name: string | null;
+      department_id: string | null;
+      department_code: string | null;
+      department_name: string | null;
+      team_id: string | null;
+      team_code: string | null;
+      team_name: string | null;
+      site_id: string | null;
+      site_code: string | null;
+      site_name: string | null;
+    }>(dataQuery, queryParams);
+
+    const items = rowsResult.rows.map((row) => projectEmployeeRow(row, role));
+
+    return { total, limit, offset, items };
+  }
+
+  /**
+   * Get an individual employee by UUID or employee ID.
+   * Viewer and Facilities Admin are denied inactive employees (returns null).
+   */
+  async getEmployee(
+    idOrEmployeeId: string,
+    role: RoleCode,
+  ): Promise<EmployeeDirectoryItem | null> {
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrEmployeeId);
+
+    const query = `
+      SELECT 
+        e.id,
+        e.employee_id,
+        e.full_name,
+        e.email,
+        e.job_title,
+        e.employment_status,
+        e.active,
+        e.manager_employee_id,
+        mgr.full_name AS manager_name,
+        d.id AS department_id,
+        d.code AS department_code,
+        d.name AS department_name,
+        t.id AS team_id,
+        t.code AS team_code,
+        t.name AS team_name,
+        s.id AS site_id,
+        s.code AS site_code,
+        s.name AS site_name
+      FROM dskt.employees e
+      LEFT JOIN dskt.employees mgr ON e.manager_employee_id = mgr.employee_id
+      LEFT JOIN dskt.departments d ON e.department_id = d.id
+      LEFT JOIN dskt.teams t ON e.team_id = t.id
+      LEFT JOIN dskt.sites s ON e.preferred_site_id = s.id
+      WHERE ${isUuid ? 'e.id = $1' : 'e.employee_id = $1'}
+      LIMIT 1
+    `;
+
+    const result = await this.pool.query<{
+      id: string;
+      employee_id: string;
+      full_name: string;
+      email: string | null;
+      job_title: string | null;
+      employment_status: string;
+      active: boolean;
+      manager_employee_id: string | null;
+      manager_name: string | null;
+      department_id: string | null;
+      department_code: string | null;
+      department_name: string | null;
+      team_id: string | null;
+      team_code: string | null;
+      team_name: string | null;
+      site_id: string | null;
+      site_code: string | null;
+      site_name: string | null;
+    }>(query, [idOrEmployeeId]);
+
+    const row = result.rows[0];
+    if (!row) {
+      return null;
+    }
+
+    if (!row.active && role !== 'WORKPLACE_PLANNER') {
+      return null;
+    }
+
+    return projectEmployeeRow(row, role);
   }
 }

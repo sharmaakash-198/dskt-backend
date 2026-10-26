@@ -4,7 +4,11 @@ import type pg from 'pg';
 import { z } from 'zod/v4';
 import type { LocalAuthProvider } from '../auth/local-provider.js';
 import { requireAnyRole, requirePrincipal } from '../auth/permissions.js';
-import { WorkforceError, WorkforceService } from './service.js';
+import {
+  resolveEffectiveDirectoryRole,
+  WorkforceError,
+  WorkforceService,
+} from './service.js';
 
 const unauthorizedResponse = z
   .object({ error: z.literal('unauthorized') })
@@ -80,6 +84,63 @@ const employeeImportRowsResponseSchema = z
     rows: z.array(employeeImportRowViewSchema),
   })
   .meta({ description: 'Paginated staging rows for an employee import.' });
+
+const employeeDepartmentSchema = z
+  .object({
+    id: z.string().uuid(),
+    code: z.string(),
+    name: z.string(),
+  })
+  .meta({ description: 'Department reference.' });
+
+const employeeTeamSchema = z
+  .object({
+    id: z.string().uuid(),
+    code: z.string(),
+    name: z.string(),
+  })
+  .meta({ description: 'Team reference.' });
+
+const employeeSiteSchema = z
+  .object({
+    id: z.string().uuid(),
+    code: z.string(),
+    name: z.string(),
+  })
+  .meta({ description: 'Preferred site reference.' });
+
+const employeeManagerSchema = z
+  .object({
+    employeeId: z.string(),
+    fullName: z.string(),
+  })
+  .meta({ description: 'Manager reference details.' });
+
+const employeeDirectoryItemSchema = z
+  .object({
+    id: z.string().uuid(),
+    employeeId: z.string(),
+    fullName: z.string(),
+    jobTitle: z.string().nullable(),
+    department: employeeDepartmentSchema.nullable(),
+    team: employeeTeamSchema.nullable(),
+    preferredSite: employeeSiteSchema.nullable(),
+    email: z.string().nullable().optional(),
+    employmentStatus: z.string().optional(),
+    active: z.boolean().optional(),
+    managerEmployeeId: z.string().nullable().optional(),
+    manager: employeeManagerSchema.nullable().optional(),
+  })
+  .meta({ description: 'Employee directory item projected according to caller role.' });
+
+const employeeSearchResponseSchema = z
+  .object({
+    total: z.number().int(),
+    limit: z.number().int(),
+    offset: z.number().int(),
+    items: z.array(employeeDirectoryItemSchema),
+  })
+  .meta({ description: 'Paginated employee directory search results.' });
 
 export type WorkforceRoutesOptions = {
   provider: LocalAuthProvider;
@@ -305,6 +366,105 @@ export const workforceRoutes: FastifyPluginAsync<WorkforceRoutesOptions> = async
         }
         throw error;
       }
+    },
+  );
+
+  // 5. Search employee directory
+  app.withTypeProvider<ZodTypeProvider>().get(
+    '/employees',
+    {
+      preHandler: [
+        requirePrincipal(options.provider),
+        requireAnyRole('FACILITIES_ADMIN', 'WORKPLACE_PLANNER', 'VIEWER'),
+      ],
+      schema: {
+        operationId: 'searchEmployees',
+        tags: ['workforce'],
+        summary: 'Search employee directory',
+        description:
+          'Search imported employees with bounded pagination, criteria filters, and field-level role projections.',
+        querystring: z.object({
+          q: z.string().trim().max(100).optional(),
+          departmentCode: z.string().trim().max(50).optional(),
+          teamCode: z.string().trim().max(50).optional(),
+          siteCode: z.string().trim().max(50).optional(),
+          employmentStatus: z.string().trim().max(50).optional(),
+          includeInactive: z
+            .preprocess((val) => val === 'true' || val === true, z.boolean())
+            .optional(),
+          limit: z.coerce.number().int().min(1).max(100).default(20),
+          offset: z.coerce.number().int().min(0).default(0),
+        }),
+        response: {
+          200: employeeSearchResponseSchema,
+          400: badRequestResponse,
+          401: unauthorizedResponse,
+          403: forbiddenResponse,
+        },
+      },
+    },
+    async (request, reply) => {
+      const principal = request.principal!;
+      const effectiveRole = resolveEffectiveDirectoryRole(principal.roles);
+      if (!effectiveRole) {
+        return reply.code(403).send({ error: 'forbidden' });
+      }
+
+      const result = await service.searchEmployees(request.query, effectiveRole);
+
+      request.log.info(
+        {
+          total: result.total,
+          resultCount: result.items.length,
+          limit: result.limit,
+          offset: result.offset,
+          roleProjection: effectiveRole,
+        },
+        'Employee directory search completed',
+      );
+
+      return reply.code(200).send(result);
+    },
+  );
+
+  // 6. Get employee detail
+  app.withTypeProvider<ZodTypeProvider>().get(
+    '/employees/:id',
+    {
+      preHandler: [
+        requirePrincipal(options.provider),
+        requireAnyRole('FACILITIES_ADMIN', 'WORKPLACE_PLANNER', 'VIEWER'),
+      ],
+      schema: {
+        operationId: 'getEmployee',
+        tags: ['workforce'],
+        summary: 'Get employee details',
+        description:
+          'Retrieve employee details by UUID or employee ID, projected according to caller role. Inactive employees return 404 for Viewer and Facilities Admin.',
+        params: z.object({
+          id: z.string().min(1).max(100),
+        }),
+        response: {
+          200: employeeDirectoryItemSchema,
+          401: unauthorizedResponse,
+          403: forbiddenResponse,
+          404: notFoundResponse,
+        },
+      },
+    },
+    async (request, reply) => {
+      const principal = request.principal!;
+      const effectiveRole = resolveEffectiveDirectoryRole(principal.roles);
+      if (!effectiveRole) {
+        return reply.code(403).send({ error: 'forbidden' });
+      }
+
+      const employee = await service.getEmployee(request.params.id, effectiveRole);
+      if (!employee) {
+        return reply.code(404).send({ error: 'not_found' });
+      }
+
+      return reply.code(200).send(employee);
     },
   );
 };

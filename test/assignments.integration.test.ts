@@ -706,11 +706,19 @@ describe.skipIf(!databaseUrl)('Ticket 26: Assign an Employee to a space', () => 
       const floorQueryRes = await app.inject({
         method: 'GET',
         url: `/assignments?floorId=${floor!.id}`,
-        cookies: { dskt_session: viewerCookie }, // Viewers can query assignments
+        cookies: { dskt_session: plannerCookie },
       });
       expect(floorQueryRes.statusCode).toBe(200);
       const floorAssignments = floorQueryRes.json();
       expect(floorAssignments.length).toBeGreaterThanOrEqual(3);
+
+      // Viewers can query assignments without error
+      const viewerQueryRes = await app.inject({
+        method: 'GET',
+        url: `/assignments?floorId=${floor!.id}`,
+        cookies: { dskt_session: viewerCookie }, // Viewers can query assignments
+      });
+      expect(viewerQueryRes.statusCode).toBe(200);
 
       await pool.end();
     });

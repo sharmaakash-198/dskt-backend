@@ -12,7 +12,7 @@
  * - Changing editing scale updates scale/version without mutating physical geometry.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import type pg from 'pg';
 import {
@@ -42,11 +42,13 @@ import {
 import { hasAnyRole, type RequestPrincipal } from '../auth/principal.js';
 import {
   appUsers,
+  assignments,
   auditEvents,
   buildings,
   elementTemplateRevisionVertices,
   elementTemplateRevisions,
   elementTemplates,
+  employees,
   floorPlanEditorLeases,
   floorPlanRevisionBoundaryVertices,
   floorPlanRevisions,
@@ -200,6 +202,10 @@ export type PublicationValidationErrorCode =
   | 'invalid_label'
   | 'revision_not_draft'
   | 'floor_archived'
+  | 'assignment_target_removed'
+  | 'assignment_target_not_assignable'
+  | 'assignment_target_conflict'
+  | 'assignment_target_invalid'
   | GeometryErrorCode;
 
 export type PublicationValidationCategory =
@@ -208,12 +214,13 @@ export type PublicationValidationCategory =
   | 'COLLISION'
   | 'TEMPLATE'
   | 'LABEL'
-  | 'LIFECYCLE';
+  | 'LIFECYCLE'
+  | 'ASSIGNMENT';
 
 export type PublicationValidationError = {
   code: PublicationValidationErrorCode;
   category: PublicationValidationCategory;
-  entityType: 'BOUNDARY' | 'PLACEMENT' | 'REVISION' | 'FLOOR';
+  entityType: 'BOUNDARY' | 'PLACEMENT' | 'REVISION' | 'FLOOR' | 'ASSIGNMENT';
   entityId: string;
   conflictingEntityId?: string;
   message: string;
@@ -259,6 +266,7 @@ export class FloorPlanError extends Error {
       | 'site_archived'
       | 'floor_plan_not_found'
       | 'floor_plan_already_exists'
+      | 'draft_already_exists'
       | 'revision_not_found'
       | 'published_revision_not_found'
       | 'revision_not_draft'
@@ -492,6 +500,148 @@ export class FloorPlanService {
         revision: toRevisionView(revision, []),
         isReplay: false,
       };
+    });
+  }
+
+  async createDraftRevision(input: {
+    floorId: string;
+    actorUserId: string;
+    idempotencyKey?: string | null;
+  }): Promise<FloorPlanRevisionView> {
+    return this.db.transaction(async (tx) => {
+      // 1. Verify floor exists and is not archived
+      const floorRows = await tx
+        .select()
+        .from(floors)
+        .where(eq(floors.id, input.floorId));
+      const floor = floorRows[0];
+      if (!floor) {
+        throw new FloorPlanError('floor_not_found');
+      }
+      if (floor.archivedAt !== null) {
+        throw new FloorPlanError('floor_archived');
+      }
+
+      // 2. Lock floor plan row for update
+      const planRows = await tx
+        .select()
+        .from(floorPlans)
+        .where(eq(floorPlans.floorId, input.floorId))
+        .for('update');
+      const plan = planRows[0];
+      if (!plan) {
+        throw new FloorPlanError('floor_plan_not_found');
+      }
+
+      // 3. Ensure no existing DRAFT revision exists
+      const existingDraftRows = await tx
+        .select()
+        .from(floorPlanRevisions)
+        .where(
+          and(
+            eq(floorPlanRevisions.floorPlanId, plan.id),
+            eq(floorPlanRevisions.lifecycleState, 'DRAFT'),
+          ),
+        );
+      if (existingDraftRows.length > 0) {
+        throw new FloorPlanError('draft_already_exists');
+      }
+
+      // 4. Find active PUBLISHED revision
+      const publishedRows = await tx
+        .select()
+        .from(floorPlanRevisions)
+        .where(
+          and(
+            eq(floorPlanRevisions.floorPlanId, plan.id),
+            eq(floorPlanRevisions.lifecycleState, 'PUBLISHED'),
+          ),
+        );
+      const publishedRev = publishedRows[0];
+      if (!publishedRev) {
+        throw new FloorPlanError('published_revision_not_found');
+      }
+
+      // 5. Query all revisions to find max revision number
+      const allRevs = await tx
+        .select({ revisionNumber: floorPlanRevisions.revisionNumber })
+        .from(floorPlanRevisions)
+        .where(eq(floorPlanRevisions.floorPlanId, plan.id));
+      const maxRevNum = Math.max(...allRevs.map((r) => r.revisionNumber), 0);
+      const nextRevisionNumber = maxRevNum + 1;
+
+      // 6. Insert new draft revision
+      const insertedRevisions = await tx
+        .insert(floorPlanRevisions)
+        .values({
+          floorPlanId: plan.id,
+          revisionNumber: nextRevisionNumber,
+          lifecycleState: 'DRAFT',
+          editingScale: publishedRev.editingScale,
+          concurrencyVersion: 0,
+          createdByUserId: input.actorUserId,
+        })
+        .returning();
+      const newDraft = insertedRevisions[0]!;
+
+      // 7. Copy boundary vertices from published revision
+      const publishedVertices = await tx
+        .select()
+        .from(floorPlanRevisionBoundaryVertices)
+        .where(eq(floorPlanRevisionBoundaryVertices.floorPlanRevisionId, publishedRev.id))
+        .orderBy(asc(floorPlanRevisionBoundaryVertices.sequence));
+
+      if (publishedVertices.length > 0) {
+        await tx.insert(floorPlanRevisionBoundaryVertices).values(
+          publishedVertices.map((v) => ({
+            floorPlanRevisionId: newDraft.id,
+            sequence: v.sequence,
+            x: v.x,
+            y: v.y,
+          })),
+        );
+      }
+
+      // 8. Copy placed elements from published revision, strictly preserving stable placement identities
+      const publishedPlacements = await tx
+        .select()
+        .from(placedElements)
+        .where(eq(placedElements.floorPlanRevisionId, publishedRev.id));
+
+      if (publishedPlacements.length > 0) {
+        await tx.insert(placedElements).values(
+          publishedPlacements.map((p) => ({
+            floorPlanRevisionId: newDraft.id,
+            placementIdentityId: p.placementIdentityId,
+            elementTemplateRevisionId: p.elementTemplateRevisionId,
+            positionX: p.positionX,
+            positionY: p.positionY,
+            rotationDegrees: p.rotationDegrees,
+            label: p.label,
+          })),
+        );
+      }
+
+      // 9. Audit event
+      const userRows = await tx
+        .select({ displayName: appUsers.displayName })
+        .from(appUsers)
+        .where(eq(appUsers.id, input.actorUserId));
+      const userDisplayName = userRows[0]?.displayName ?? 'Facilities Admin';
+
+      await tx.insert(auditEvents).values({
+        actorUserId: input.actorUserId,
+        action: 'floor_plan.draft_created',
+        targetType: 'FLOOR_PLAN_REVISION',
+        targetId: newDraft.id,
+        correlationId: newDraft.id,
+        summary: `User ${userDisplayName} created draft revision ${newDraft.revisionNumber} based on published revision ${publishedRev.revisionNumber} for floor "${floor.name}" (${floor.code})`,
+      });
+
+      // 10. Return view
+      const boundary = await this.fetchBoundary(tx, newDraft.id);
+      const placements = await this.listPlacementsInternal(tx, newDraft.id);
+      return toRevisionView(newDraft, boundary, placements);
     });
   }
 
@@ -2125,6 +2275,133 @@ export class FloorPlanService {
       }
     }
 
+    // Assignment Reconciliation: verify that active & future assignments carry forward safely
+    const now = new Date();
+    const activeAssignments = await tx
+      .select({
+        id: assignments.id,
+        placementIdentityId: assignments.placementIdentityId,
+        employeeId: assignments.employeeId,
+        employeeName: employees.fullName,
+        employeeCode: employees.employeeId,
+        employeeActive: employees.active,
+        startedAt: assignments.startedAt,
+        endedAt: assignments.endedAt,
+      })
+      .from(assignments)
+      .innerJoin(employees, eq(employees.id, assignments.employeeId))
+      .innerJoin(
+        placementIdentities,
+        eq(placementIdentities.id, assignments.placementIdentityId),
+      )
+      .where(
+        and(
+          eq(placementIdentities.floorPlanId, revision.floorPlanId),
+          sql`(${assignments.endedAt} IS NULL OR ${assignments.endedAt} > ${now})`,
+        ),
+      );
+
+    const assignmentsByPlacementId = new Map<string, typeof activeAssignments>();
+    for (const a of activeAssignments) {
+      const list = assignmentsByPlacementId.get(a.placementIdentityId) ?? [];
+      list.push(a);
+      assignmentsByPlacementId.set(a.placementIdentityId, list);
+    }
+
+    for (const [placementIdentityId, assignedList] of assignmentsByPlacementId.entries()) {
+      const draftPlacement = placements.find(
+        (p) => p.placementIdentityId === placementIdentityId,
+      );
+
+      if (!draftPlacement) {
+        for (const a of assignedList) {
+          errors.push({
+            code: 'assignment_target_removed',
+            category: 'ASSIGNMENT',
+            entityType: 'PLACEMENT',
+            entityId: placementIdentityId,
+            message: `Active or future assignment for ${a.employeeName} (${a.employeeCode}) cannot be carried forward: the assigned space was removed in this draft revision.`,
+            correctiveAction:
+              'Reassign or end the employee assignment before publishing, or restore the space in the draft editor.',
+            details: {
+              assignmentId: a.id,
+              employeeId: a.employeeId,
+              placementIdentityId,
+            },
+          });
+        }
+        continue;
+      }
+
+      if (!draftPlacement.assignable || draftPlacement.spatialClass !== 'PHYSICAL') {
+        for (const a of assignedList) {
+          errors.push({
+            code: 'assignment_target_not_assignable',
+            category: 'ASSIGNMENT',
+            entityType: 'PLACEMENT',
+            entityId: draftPlacement.id,
+            message: `Active or future assignment for ${a.employeeName} (${a.employeeCode}) cannot be carried forward: space "${draftPlacement.label || 'unlabeled'}" is not an assignable physical space.`,
+            correctiveAction:
+              'Assign an assignable physical template to this space, or reassign/end the assignment before publishing.',
+            details: {
+              assignmentId: a.id,
+              employeeId: a.employeeId,
+              placementIdentityId,
+            },
+          });
+        }
+      }
+
+      for (const a of assignedList) {
+        if (!a.employeeActive) {
+          errors.push({
+            code: 'assignment_target_invalid',
+            category: 'ASSIGNMENT',
+            entityType: 'ASSIGNMENT',
+            entityId: a.id,
+            message: `Active or future assignment for inactive employee ${a.employeeName} (${a.employeeCode}) cannot be reconciled.`,
+            correctiveAction:
+              'End or remove the assignment for the inactive employee before publishing.',
+            details: {
+              assignmentId: a.id,
+              employeeId: a.employeeId,
+              placementIdentityId,
+            },
+          });
+        }
+      }
+
+      // Check for overlapping assignment periods on this placement target
+      if (assignedList.length > 1) {
+        for (let i = 0; i < assignedList.length; i++) {
+          const a1 = assignedList[i]!;
+          const a1Start = a1.startedAt.getTime();
+          const a1End = a1.endedAt ? a1.endedAt.getTime() : Infinity;
+          for (let j = i + 1; j < assignedList.length; j++) {
+            const a2 = assignedList[j]!;
+            const a2Start = a2.startedAt.getTime();
+            const a2End = a2.endedAt ? a2.endedAt.getTime() : Infinity;
+            if (a1Start < a2End && a1End > a2Start) {
+              errors.push({
+                code: 'assignment_target_conflict',
+                category: 'ASSIGNMENT',
+                entityType: 'PLACEMENT',
+                entityId: draftPlacement.id,
+                message: `Space "${draftPlacement.label || 'unlabeled'}" has conflicting overlapping assignments for ${a1.employeeName} and ${a2.employeeName}.`,
+                correctiveAction:
+                  'Adjust assignment dates so they do not overlap before publishing.',
+                details: {
+                  assignmentIdA: a1.id,
+                  assignmentIdB: a2.id,
+                  placementIdentityId,
+                },
+              });
+            }
+          }
+        }
+      }
+    }
+
     const isValid = errors.length === 0;
     const ready = isValid;
     const summary = ready
@@ -2336,13 +2613,27 @@ export class FloorPlanService {
         .where(eq(appUsers.id, input.actorUserId));
       const userDisplayName = userRows[0]?.displayName ?? 'Facilities Admin';
 
+      // Count carried assignments
+      const carriedCountQuery = await tx
+        .select({ count: sql<number>`count(*)` })
+        .from(assignments)
+        .innerJoin(placementIdentities, eq(placementIdentities.id, assignments.placementIdentityId))
+        .where(
+          and(
+            eq(placementIdentities.floorPlanId, plan.id),
+            sql`(${assignments.endedAt} IS NULL OR ${assignments.endedAt} > ${now})`,
+          ),
+        );
+      const carriedCount = Number(carriedCountQuery[0]?.count ?? 0);
+      const carriedText = carriedCount > 0 ? `. Carried forward ${carriedCount} active/future assignment(s).` : '';
+
       await tx.insert(auditEvents).values({
         actorUserId: input.actorUserId,
         action: 'floor_plan.published',
         targetType: 'FLOOR_PLAN_REVISION',
         targetId: revision.id,
         correlationId: revision.id,
-        summary: `User ${userDisplayName} published revision ${revision.revisionNumber} for floor "${floor.name}" (${floor.code})`,
+        summary: `User ${userDisplayName} published revision ${revision.revisionNumber} for floor "${floor.name}" (${floor.code})${carriedText}`,
       });
 
       // 12. Build view and record processed command

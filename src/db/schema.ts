@@ -583,6 +583,8 @@ export const assignments = dskt.table(
     assignedByUserId: uuid('assigned_by_user_id')
       .notNull()
       .references(() => appUsers.id),
+    endedByUserId: uuid('ended_by_user_id')
+      .references(() => appUsers.id),
     startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
     endedAt: timestamp('ended_at', { withTimezone: true }),
     clientCommandId: text('client_command_id'),

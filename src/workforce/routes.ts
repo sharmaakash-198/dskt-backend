@@ -116,6 +116,23 @@ const employeeManagerSchema = z
   })
   .meta({ description: 'Manager reference details.' });
 
+const employeeActiveAssignmentSchema = z
+  .object({
+    id: z.string().uuid(),
+    placementIdentityId: z.string().uuid(),
+    spaceLabel: z.string().nullable(),
+    siteId: z.string().uuid(),
+    siteName: z.string(),
+    buildingId: z.string().uuid(),
+    buildingName: z.string(),
+    floorId: z.string().uuid(),
+    floorName: z.string(),
+    startedAt: z.string(),
+    endedAt: z.string().nullable(),
+    isAccessible: z.boolean(),
+  })
+  .meta({ description: 'Active space assignment with location hierarchy details.' });
+
 const employeeDirectoryItemSchema = z
   .object({
     id: z.string().uuid(),
@@ -130,6 +147,8 @@ const employeeDirectoryItemSchema = z
     active: z.boolean().optional(),
     managerEmployeeId: z.string().nullable().optional(),
     manager: employeeManagerSchema.nullable().optional(),
+    activeAssignmentCount: z.number().int().optional(),
+    activeAssignments: z.array(employeeActiveAssignmentSchema).optional(),
   })
   .meta({ description: 'Employee directory item projected according to caller role.' });
 

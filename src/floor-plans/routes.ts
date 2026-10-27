@@ -133,8 +133,8 @@ const geometryDiagnosticSchema = z.object({
 
 const publicationValidationErrorSchema = z.object({
   code: z.string(),
-  category: z.enum(['BOUNDARY', 'CONTAINMENT', 'COLLISION', 'TEMPLATE', 'LABEL', 'LIFECYCLE']),
-  entityType: z.enum(['BOUNDARY', 'PLACEMENT', 'REVISION', 'FLOOR']),
+  category: z.enum(['BOUNDARY', 'CONTAINMENT', 'COLLISION', 'TEMPLATE', 'LABEL', 'LIFECYCLE', 'ASSIGNMENT']),
+  entityType: z.enum(['BOUNDARY', 'PLACEMENT', 'REVISION', 'FLOOR', 'ASSIGNMENT']),
   entityId: z.string(),
   conflictingEntityId: z.string().optional(),
   message: z.string(),
@@ -169,6 +169,7 @@ const conflictResponse = z.object({
     'site_archived',
     'template_archived',
     'floor_plan_already_exists',
+    'draft_already_exists',
     'revision_not_draft',
     'revision_not_published',
     'stale_revision',
@@ -297,6 +298,7 @@ function floorPlanErrorHttp(error: FloorPlanError): {
     case 'site_archived':
     case 'template_archived':
     case 'floor_plan_already_exists':
+    case 'draft_already_exists':
     case 'revision_not_draft':
     case 'revision_not_published':
     case 'stale_revision':
@@ -425,6 +427,53 @@ export const floorPlanRoutes: FastifyPluginAsync<FloorPlanRouteOptions> = async 
       try {
         const revisions = await service.listRevisions(request.params.floorId, request.principal);
         return { revisions };
+      } catch (error) {
+        if (error instanceof FloorPlanError) {
+          const mapped = floorPlanErrorHttp(error);
+          reply.statusCode = mapped.status;
+          return mapped.body as never;
+        }
+        throw error;
+      }
+    },
+  );
+
+  typedApp.post(
+    '/floors/:floorId/floor-plan/revisions',
+    {
+      preHandler: [authenticate, requireFacilities],
+      schema: {
+        operationId: 'createFloorPlanRevision',
+        tags: ['floor-plans'],
+        summary: 'Create a new draft revision based on the published floor plan revision',
+        description:
+          'Creates a new editable draft revision branched from the current Published revision, preserving stable placement identities while leaving the published revision immutable.',
+        security: [],
+        params: z.object({ floorId: z.string().uuid() }),
+        body: z
+          .object({
+            idempotencyKey: z.string().max(255).optional(),
+          })
+          .optional()
+          .nullable(),
+        response: {
+          201: floorPlanRevisionView,
+          400: badRequestResponse,
+          401: unauthorizedResponse,
+          403: forbiddenResponse,
+          404: notFoundResponse,
+          409: conflictResponse,
+        },
+      },
+    },
+    async (request, reply) => {
+      try {
+        const revision = await service.createDraftRevision({
+          floorId: request.params.floorId,
+          actorUserId: request.principal!.appUserId,
+          idempotencyKey: request.body?.idempotencyKey,
+        });
+        return reply.code(201).send(revision);
       } catch (error) {
         if (error instanceof FloorPlanError) {
           const mapped = floorPlanErrorHttp(error);

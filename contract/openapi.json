@@ -4865,7 +4865,8 @@
                               "COLLISION",
                               "TEMPLATE",
                               "LABEL",
-                              "LIFECYCLE"
+                              "LIFECYCLE",
+                              "ASSIGNMENT"
                             ]
                           },
                           "entityType": {
@@ -4874,7 +4875,8 @@
                               "BOUNDARY",
                               "PLACEMENT",
                               "REVISION",
-                              "FLOOR"
+                              "FLOOR",
+                              "ASSIGNMENT"
                             ]
                           },
                           "entityId": {
@@ -5016,6 +5018,7 @@
                         "site_archived",
                         "template_archived",
                         "floor_plan_already_exists",
+                        "draft_already_exists",
                         "revision_not_draft",
                         "revision_not_published",
                         "stale_revision",
@@ -5741,6 +5744,7 @@
                         "site_archived",
                         "template_archived",
                         "floor_plan_already_exists",
+                        "draft_already_exists",
                         "revision_not_draft",
                         "revision_not_published",
                         "stale_revision",
@@ -6161,6 +6165,555 @@
                         "site_archived",
                         "template_archived",
                         "floor_plan_already_exists",
+                        "draft_already_exists",
+                        "revision_not_draft",
+                        "revision_not_published",
+                        "stale_revision",
+                        "invalid_preview_token",
+                        "label_collision",
+                        "concurrency_conflict",
+                        "duplicate_label",
+                        "lease_conflict",
+                        "lease_invalid_token",
+                        "lease_expired",
+                        "command_id_payload_mismatch"
+                      ]
+                    },
+                    "currentConcurrencyVersion": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createFloorPlanRevision",
+        "summary": "Create a new draft revision based on the published floor plan revision",
+        "tags": [
+          "floor-plans"
+        ],
+        "description": "Creates a new editable draft revision branched from the current Published revision, preserving stable placement identities while leaving the published revision immutable.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "idempotencyKey": {
+                        "type": "string",
+                        "maxLength": 255
+                      }
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "floorId",
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "201": {
+            "description": "Floor Plan Revision projection.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "floorPlanId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "revisionNumber": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "lifecycleState": {
+                      "type": "string",
+                      "enum": [
+                        "DRAFT",
+                        "PUBLISHED",
+                        "ARCHIVED"
+                      ]
+                    },
+                    "editingScale": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "concurrencyVersion": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "publishedByUserId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "publishedAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "boundary": {
+                      "default": [],
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "x": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "y": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "x",
+                          "y"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "placements": {
+                      "default": [],
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "floorPlanRevisionId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "placementIdentityId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "elementTemplateRevisionId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "templateId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "templateCode": {
+                            "type": "string"
+                          },
+                          "templateName": {
+                            "type": "string"
+                          },
+                          "templateRevisionNumber": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "assignable": {
+                            "type": "boolean"
+                          },
+                          "spatialClass": {
+                            "type": "string",
+                            "enum": [
+                              "PHYSICAL",
+                              "ZONE",
+                              "OBSTACLE"
+                            ]
+                          },
+                          "borderColor": {
+                            "type": "string"
+                          },
+                          "fillColor": {
+                            "type": "string"
+                          },
+                          "positionX": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "positionY": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "rotationDegrees": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "label": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "vertices": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "x": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "y": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                }
+                              },
+                              "required": [
+                                "x",
+                                "y"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "localVertices": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "x": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "y": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                }
+                              },
+                              "required": [
+                                "x",
+                                "y"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "createdAt": {
+                            "type": "string"
+                          },
+                          "updatedAt": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "floorPlanRevisionId",
+                          "placementIdentityId",
+                          "elementTemplateRevisionId",
+                          "templateId",
+                          "templateCode",
+                          "templateName",
+                          "templateRevisionNumber",
+                          "assignable",
+                          "spatialClass",
+                          "borderColor",
+                          "fillColor",
+                          "positionX",
+                          "positionY",
+                          "rotationDegrees",
+                          "label",
+                          "vertices",
+                          "localVertices",
+                          "createdAt",
+                          "updatedAt"
+                        ],
+                        "additionalProperties": false,
+                        "description": "Placed element representation on a floor plan revision."
+                      }
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "updatedAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "floorPlanId",
+                    "revisionNumber",
+                    "lifecycleState",
+                    "editingScale",
+                    "concurrencyVersion",
+                    "boundary",
+                    "placements",
+                    "createdAt",
+                    "updatedAt"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Floor Plan Revision projection."
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "diagnostics": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          },
+                          "vertexIndex": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "edgeIndex": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "validationErrors": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "category": {
+                            "type": "string",
+                            "enum": [
+                              "BOUNDARY",
+                              "CONTAINMENT",
+                              "COLLISION",
+                              "TEMPLATE",
+                              "LABEL",
+                              "LIFECYCLE",
+                              "ASSIGNMENT"
+                            ]
+                          },
+                          "entityType": {
+                            "type": "string",
+                            "enum": [
+                              "BOUNDARY",
+                              "PLACEMENT",
+                              "REVISION",
+                              "FLOOR",
+                              "ASSIGNMENT"
+                            ]
+                          },
+                          "entityId": {
+                            "type": "string"
+                          },
+                          "conflictingEntityId": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          },
+                          "correctiveAction": {
+                            "type": "string"
+                          },
+                          "vertexIndex": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "edgeIndex": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "details": {
+                            "type": "object",
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "additionalProperties": {}
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "category",
+                          "entityType",
+                          "entityId",
+                          "message",
+                          "correctiveAction"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or session expired/revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unauthorized"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Not authenticated or session expired/revoked."
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but missing a required application role.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "forbidden"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Authenticated but missing a required application role."
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "floor_not_found",
+                        "floor_plan_not_found",
+                        "revision_not_found",
+                        "published_revision_not_found",
+                        "template_revision_not_found",
+                        "placement_not_found",
+                        "lease_not_found"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "floor_archived",
+                        "building_archived",
+                        "site_archived",
+                        "template_archived",
+                        "floor_plan_already_exists",
+                        "draft_already_exists",
                         "revision_not_draft",
                         "revision_not_published",
                         "stale_revision",
@@ -6588,6 +7141,7 @@
                         "site_archived",
                         "template_archived",
                         "floor_plan_already_exists",
+                        "draft_already_exists",
                         "revision_not_draft",
                         "revision_not_published",
                         "stale_revision",
@@ -6721,7 +7275,8 @@
                               "COLLISION",
                               "TEMPLATE",
                               "LABEL",
-                              "LIFECYCLE"
+                              "LIFECYCLE",
+                              "ASSIGNMENT"
                             ]
                           },
                           "entityType": {
@@ -6730,7 +7285,8 @@
                               "BOUNDARY",
                               "PLACEMENT",
                               "REVISION",
-                              "FLOOR"
+                              "FLOOR",
+                              "ASSIGNMENT"
                             ]
                           },
                           "entityId": {
@@ -6790,7 +7346,8 @@
                               "COLLISION",
                               "TEMPLATE",
                               "LABEL",
-                              "LIFECYCLE"
+                              "LIFECYCLE",
+                              "ASSIGNMENT"
                             ]
                           },
                           "entityType": {
@@ -6799,7 +7356,8 @@
                               "BOUNDARY",
                               "PLACEMENT",
                               "REVISION",
-                              "FLOOR"
+                              "FLOOR",
+                              "ASSIGNMENT"
                             ]
                           },
                           "entityId": {
@@ -6915,7 +7473,8 @@
                               "COLLISION",
                               "TEMPLATE",
                               "LABEL",
-                              "LIFECYCLE"
+                              "LIFECYCLE",
+                              "ASSIGNMENT"
                             ]
                           },
                           "entityType": {
@@ -6924,7 +7483,8 @@
                               "BOUNDARY",
                               "PLACEMENT",
                               "REVISION",
-                              "FLOOR"
+                              "FLOOR",
+                              "ASSIGNMENT"
                             ]
                           },
                           "entityId": {
@@ -7066,6 +7626,7 @@
                         "site_archived",
                         "template_archived",
                         "floor_plan_already_exists",
+                        "draft_already_exists",
                         "revision_not_draft",
                         "revision_not_published",
                         "stale_revision",
@@ -7501,7 +8062,8 @@
                               "COLLISION",
                               "TEMPLATE",
                               "LABEL",
-                              "LIFECYCLE"
+                              "LIFECYCLE",
+                              "ASSIGNMENT"
                             ]
                           },
                           "entityType": {
@@ -7510,7 +8072,8 @@
                               "BOUNDARY",
                               "PLACEMENT",
                               "REVISION",
-                              "FLOOR"
+                              "FLOOR",
+                              "ASSIGNMENT"
                             ]
                           },
                           "entityId": {
@@ -7652,6 +8215,7 @@
                         "site_archived",
                         "template_archived",
                         "floor_plan_already_exists",
+                        "draft_already_exists",
                         "revision_not_draft",
                         "revision_not_published",
                         "stale_revision",
@@ -8099,6 +8663,7 @@
                         "site_archived",
                         "template_archived",
                         "floor_plan_already_exists",
+                        "draft_already_exists",
                         "revision_not_draft",
                         "revision_not_published",
                         "stale_revision",
@@ -8347,6 +8912,7 @@
                         "site_archived",
                         "template_archived",
                         "floor_plan_already_exists",
+                        "draft_already_exists",
                         "revision_not_draft",
                         "revision_not_published",
                         "stale_revision",
@@ -8594,6 +9160,7 @@
                         "site_archived",
                         "template_archived",
                         "floor_plan_already_exists",
+                        "draft_already_exists",
                         "revision_not_draft",
                         "revision_not_published",
                         "stale_revision",
@@ -8855,6 +9422,7 @@
                         "site_archived",
                         "template_archived",
                         "floor_plan_already_exists",
+                        "draft_already_exists",
                         "revision_not_draft",
                         "revision_not_published",
                         "stale_revision",
@@ -9060,6 +9628,7 @@
                         "site_archived",
                         "template_archived",
                         "floor_plan_already_exists",
+                        "draft_already_exists",
                         "revision_not_draft",
                         "revision_not_published",
                         "stale_revision",
@@ -9311,6 +9880,7 @@
                         "site_archived",
                         "template_archived",
                         "floor_plan_already_exists",
+                        "draft_already_exists",
                         "revision_not_draft",
                         "revision_not_published",
                         "stale_revision",
@@ -9770,7 +10340,8 @@
                               "COLLISION",
                               "TEMPLATE",
                               "LABEL",
-                              "LIFECYCLE"
+                              "LIFECYCLE",
+                              "ASSIGNMENT"
                             ]
                           },
                           "entityType": {
@@ -9779,7 +10350,8 @@
                               "BOUNDARY",
                               "PLACEMENT",
                               "REVISION",
-                              "FLOOR"
+                              "FLOOR",
+                              "ASSIGNMENT"
                             ]
                           },
                           "entityId": {
@@ -9921,6 +10493,7 @@
                         "site_archived",
                         "template_archived",
                         "floor_plan_already_exists",
+                        "draft_already_exists",
                         "revision_not_draft",
                         "revision_not_published",
                         "stale_revision",
@@ -10356,7 +10929,8 @@
                               "COLLISION",
                               "TEMPLATE",
                               "LABEL",
-                              "LIFECYCLE"
+                              "LIFECYCLE",
+                              "ASSIGNMENT"
                             ]
                           },
                           "entityType": {
@@ -10365,7 +10939,8 @@
                               "BOUNDARY",
                               "PLACEMENT",
                               "REVISION",
-                              "FLOOR"
+                              "FLOOR",
+                              "ASSIGNMENT"
                             ]
                           },
                           "entityId": {
@@ -10507,6 +11082,7 @@
                         "site_archived",
                         "template_archived",
                         "floor_plan_already_exists",
+                        "draft_already_exists",
                         "revision_not_draft",
                         "revision_not_published",
                         "stale_revision",
@@ -10861,7 +11437,8 @@
                               "COLLISION",
                               "TEMPLATE",
                               "LABEL",
-                              "LIFECYCLE"
+                              "LIFECYCLE",
+                              "ASSIGNMENT"
                             ]
                           },
                           "entityType": {
@@ -10870,7 +11447,8 @@
                               "BOUNDARY",
                               "PLACEMENT",
                               "REVISION",
-                              "FLOOR"
+                              "FLOOR",
+                              "ASSIGNMENT"
                             ]
                           },
                           "entityId": {
@@ -11012,6 +11590,7 @@
                         "site_archived",
                         "template_archived",
                         "floor_plan_already_exists",
+                        "draft_already_exists",
                         "revision_not_draft",
                         "revision_not_published",
                         "stale_revision",
@@ -11336,6 +11915,7 @@
                         "site_archived",
                         "template_archived",
                         "floor_plan_already_exists",
+                        "draft_already_exists",
                         "revision_not_draft",
                         "revision_not_published",
                         "stale_revision",
@@ -11690,7 +12270,8 @@
                               "COLLISION",
                               "TEMPLATE",
                               "LABEL",
-                              "LIFECYCLE"
+                              "LIFECYCLE",
+                              "ASSIGNMENT"
                             ]
                           },
                           "entityType": {
@@ -11699,7 +12280,8 @@
                               "BOUNDARY",
                               "PLACEMENT",
                               "REVISION",
-                              "FLOOR"
+                              "FLOOR",
+                              "ASSIGNMENT"
                             ]
                           },
                           "entityId": {
@@ -11841,6 +12423,7 @@
                         "site_archived",
                         "template_archived",
                         "floor_plan_already_exists",
+                        "draft_already_exists",
                         "revision_not_draft",
                         "revision_not_published",
                         "stale_revision",
@@ -12040,7 +12623,8 @@
                               "COLLISION",
                               "TEMPLATE",
                               "LABEL",
-                              "LIFECYCLE"
+                              "LIFECYCLE",
+                              "ASSIGNMENT"
                             ]
                           },
                           "entityType": {
@@ -12049,7 +12633,8 @@
                               "BOUNDARY",
                               "PLACEMENT",
                               "REVISION",
-                              "FLOOR"
+                              "FLOOR",
+                              "ASSIGNMENT"
                             ]
                           },
                           "entityId": {
@@ -12191,6 +12776,7 @@
                         "site_archived",
                         "template_archived",
                         "floor_plan_already_exists",
+                        "draft_already_exists",
                         "revision_not_draft",
                         "revision_not_published",
                         "stale_revision",
@@ -12473,7 +13059,8 @@
                               "COLLISION",
                               "TEMPLATE",
                               "LABEL",
-                              "LIFECYCLE"
+                              "LIFECYCLE",
+                              "ASSIGNMENT"
                             ]
                           },
                           "entityType": {
@@ -12482,7 +13069,8 @@
                               "BOUNDARY",
                               "PLACEMENT",
                               "REVISION",
-                              "FLOOR"
+                              "FLOOR",
+                              "ASSIGNMENT"
                             ]
                           },
                           "entityId": {
@@ -12624,6 +13212,7 @@
                         "site_archived",
                         "template_archived",
                         "floor_plan_already_exists",
+                        "draft_already_exists",
                         "revision_not_draft",
                         "revision_not_published",
                         "stale_revision",
@@ -12833,7 +13422,8 @@
                               "COLLISION",
                               "TEMPLATE",
                               "LABEL",
-                              "LIFECYCLE"
+                              "LIFECYCLE",
+                              "ASSIGNMENT"
                             ]
                           },
                           "entityType": {
@@ -12842,7 +13432,8 @@
                               "BOUNDARY",
                               "PLACEMENT",
                               "REVISION",
-                              "FLOOR"
+                              "FLOOR",
+                              "ASSIGNMENT"
                             ]
                           },
                           "entityId": {
@@ -12984,6 +13575,7 @@
                         "site_archived",
                         "template_archived",
                         "floor_plan_already_exists",
+                        "draft_already_exists",
                         "revision_not_draft",
                         "revision_not_published",
                         "stale_revision",
@@ -16131,6 +16723,87 @@
                                 "type": "null"
                               }
                             ]
+                          },
+                          "activeAssignmentCount": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "activeAssignments": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "placementIdentityId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "spaceLabel": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "siteId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "siteName": {
+                                  "type": "string"
+                                },
+                                "buildingId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "buildingName": {
+                                  "type": "string"
+                                },
+                                "floorId": {
+                                  "type": "string",
+                                  "format": "uuid",
+                                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                                },
+                                "floorName": {
+                                  "type": "string"
+                                },
+                                "startedAt": {
+                                  "type": "string"
+                                },
+                                "endedAt": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "isAccessible": {
+                                  "type": "boolean"
+                                }
+                              },
+                              "required": [
+                                "id",
+                                "placementIdentityId",
+                                "spaceLabel",
+                                "siteId",
+                                "siteName",
+                                "buildingId",
+                                "buildingName",
+                                "floorId",
+                                "floorName",
+                                "startedAt",
+                                "endedAt",
+                                "isAccessible"
+                              ],
+                              "additionalProperties": false,
+                              "description": "Active space assignment with location hierarchy details."
+                            }
                           }
                         },
                         "required": [
@@ -16407,6 +17080,87 @@
                           "type": "null"
                         }
                       ]
+                    },
+                    "activeAssignmentCount": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "activeAssignments": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "placementIdentityId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "spaceLabel": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "siteId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "siteName": {
+                            "type": "string"
+                          },
+                          "buildingId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "buildingName": {
+                            "type": "string"
+                          },
+                          "floorId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "floorName": {
+                            "type": "string"
+                          },
+                          "startedAt": {
+                            "type": "string"
+                          },
+                          "endedAt": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "isAccessible": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "placementIdentityId",
+                          "spaceLabel",
+                          "siteId",
+                          "siteName",
+                          "buildingId",
+                          "buildingName",
+                          "floorId",
+                          "floorName",
+                          "startedAt",
+                          "endedAt",
+                          "isAccessible"
+                        ],
+                        "additionalProperties": false,
+                        "description": "Active space assignment with location hierarchy details."
+                      }
                     }
                   },
                   "required": [
@@ -16605,8 +17359,18 @@
                     "floorName": {
                       "type": "string"
                     },
+                    "buildingId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
                     "buildingName": {
                       "type": "string"
+                    },
+                    "siteId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                     },
                     "siteName": {
                       "type": "string"
@@ -16620,10 +17384,33 @@
                         "null"
                       ]
                     },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "CURRENT",
+                        "FUTURE",
+                        "ENDED"
+                      ]
+                    },
+                    "isAccessible": {
+                      "type": "boolean"
+                    },
                     "assignedByUserId": {
                       "type": "string",
                       "format": "uuid",
                       "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "endedByUserId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "clientCommandId": {
                       "type": [
@@ -16647,7 +17434,7 @@
                     "siteName",
                     "startedAt",
                     "endedAt",
-                    "assignedByUserId",
+                    "status",
                     "createdAt"
                   ],
                   "additionalProperties": false,
@@ -16749,7 +17536,7 @@
             }
           },
           "409": {
-            "description": "Space period overlap or command idempotency payload conflict.",
+            "description": "Space period overlap, historical rewrite conflict, or command idempotency payload conflict.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16766,7 +17553,7 @@
                     "error"
                   ],
                   "additionalProperties": false,
-                  "description": "Space period overlap or command idempotency payload conflict."
+                  "description": "Space period overlap, historical rewrite conflict, or command idempotency payload conflict."
                 }
               }
             }
@@ -16779,7 +17566,7 @@
         "tags": [
           "assignments"
         ],
-        "description": "Query assignments filtered by employeeId, placementIdentityId, or floorId.",
+        "description": "Query assignments filtered by employeeId, placementIdentityId, floorId, or status. Viewers receive strictly permitted current occupancy.",
         "parameters": [
           {
             "schema": {
@@ -16809,6 +17596,20 @@
             },
             "in": "query",
             "name": "floorId",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "CURRENT",
+                "FUTURE",
+                "ENDED",
+                "ALL"
+              ]
+            },
+            "in": "query",
+            "name": "status",
             "required": false
           }
         ],
@@ -16875,8 +17676,18 @@
                       "floorName": {
                         "type": "string"
                       },
+                      "buildingId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
                       "buildingName": {
                         "type": "string"
+                      },
+                      "siteId": {
+                        "type": "string",
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                       },
                       "siteName": {
                         "type": "string"
@@ -16890,10 +17701,33 @@
                           "null"
                         ]
                       },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "CURRENT",
+                          "FUTURE",
+                          "ENDED"
+                        ]
+                      },
+                      "isAccessible": {
+                        "type": "boolean"
+                      },
                       "assignedByUserId": {
                         "type": "string",
                         "format": "uuid",
                         "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                      },
+                      "endedByUserId": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
                       },
                       "clientCommandId": {
                         "type": [
@@ -16917,12 +17751,601 @@
                       "siteName",
                       "startedAt",
                       "endedAt",
-                      "assignedByUserId",
+                      "status",
                       "createdAt"
                     ],
                     "additionalProperties": false,
                     "description": "Time-bounded space assignment details with employee and candidate space context."
                   }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or session expired/revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unauthorized"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Not authenticated or session expired/revoked."
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Caller lacks the required role.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "forbidden"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Caller lacks the required role."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/assignments/{id}/end": {
+      "post": {
+        "operationId": "endAssignment",
+        "summary": "End an active or future assignment",
+        "tags": [
+          "assignments"
+        ],
+        "description": "End an active or future space assignment at a valid timestamp while preserving original creation details and recording an audit event. Rejects attempts to silently rewrite already historical assignments.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "endedAt": {
+                    "type": "string"
+                  },
+                  "clientCommandId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Time-bounded space assignment details with employee and candidate space context.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "placementIdentityId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "employeeId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "employeeName": {
+                      "type": "string"
+                    },
+                    "employeeCode": {
+                      "type": "string"
+                    },
+                    "employeeEmail": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "email",
+                          "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "departmentName": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "spaceLabel": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "floorId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "floorName": {
+                      "type": "string"
+                    },
+                    "buildingId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "buildingName": {
+                      "type": "string"
+                    },
+                    "siteId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "siteName": {
+                      "type": "string"
+                    },
+                    "startedAt": {
+                      "type": "string"
+                    },
+                    "endedAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "CURRENT",
+                        "FUTURE",
+                        "ENDED"
+                      ]
+                    },
+                    "isAccessible": {
+                      "type": "boolean"
+                    },
+                    "assignedByUserId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "endedByUserId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "clientCommandId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "placementIdentityId",
+                    "employeeId",
+                    "employeeName",
+                    "employeeCode",
+                    "floorId",
+                    "floorName",
+                    "buildingName",
+                    "siteName",
+                    "startedAt",
+                    "endedAt",
+                    "status",
+                    "createdAt"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Time-bounded space assignment details with employee and candidate space context."
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid assignment parameters or non-assignable space.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Invalid assignment parameters or non-assignable space."
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or session expired/revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unauthorized"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Not authenticated or session expired/revoked."
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Caller lacks the required role.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "forbidden"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Caller lacks the required role."
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Target entity not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Target entity not found."
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Space period overlap, historical rewrite conflict, or command idempotency payload conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Space period overlap, historical rewrite conflict, or command idempotency payload conflict."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/assignments/history": {
+      "get": {
+        "operationId": "getAssignmentHistory",
+        "summary": "Get paginated assignment history",
+        "tags": [
+          "assignments"
+        ],
+        "description": "Inspect historical assignment records with bounded pagination. Inaccessible to Viewer role.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "query",
+            "name": "employeeId",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "query",
+            "name": "placementIdentityId",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "query",
+            "name": "floorId",
+            "required": false
+          },
+          {
+            "schema": {
+              "default": 20,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "in": "query",
+            "name": "limit",
+            "required": false
+          },
+          {
+            "schema": {
+              "default": 0,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "in": "query",
+            "name": "offset",
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated historical assignment records.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "total": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "limit": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "offset": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "placementIdentityId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "employeeId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "employeeName": {
+                            "type": "string"
+                          },
+                          "employeeCode": {
+                            "type": "string"
+                          },
+                          "employeeEmail": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "email",
+                                "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "departmentName": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "spaceLabel": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "floorId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "floorName": {
+                            "type": "string"
+                          },
+                          "buildingId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "buildingName": {
+                            "type": "string"
+                          },
+                          "siteId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "siteName": {
+                            "type": "string"
+                          },
+                          "startedAt": {
+                            "type": "string"
+                          },
+                          "endedAt": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "CURRENT",
+                              "FUTURE",
+                              "ENDED"
+                            ]
+                          },
+                          "isAccessible": {
+                            "type": "boolean"
+                          },
+                          "assignedByUserId": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "endedByUserId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "uuid",
+                                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "clientCommandId": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "createdAt": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "placementIdentityId",
+                          "employeeId",
+                          "employeeName",
+                          "employeeCode",
+                          "floorId",
+                          "floorName",
+                          "buildingName",
+                          "siteName",
+                          "startedAt",
+                          "endedAt",
+                          "status",
+                          "createdAt"
+                        ],
+                        "additionalProperties": false,
+                        "description": "Time-bounded space assignment details with employee and candidate space context."
+                      }
+                    }
+                  },
+                  "required": [
+                    "total",
+                    "limit",
+                    "offset",
+                    "items"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Paginated historical assignment records."
                 }
               }
             }

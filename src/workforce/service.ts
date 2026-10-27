@@ -149,6 +149,21 @@ export type EmployeeManagerView = {
   fullName: string;
 };
 
+export type EmployeeActiveAssignment = {
+  id: string;
+  placementIdentityId: string;
+  spaceLabel: string | null;
+  siteId: string;
+  siteName: string;
+  buildingId: string;
+  buildingName: string;
+  floorId: string;
+  floorName: string;
+  startedAt: string;
+  endedAt: string | null;
+  isAccessible: boolean;
+};
+
 export type EmployeeDirectoryItem = {
   id: string;
   employeeId: string;
@@ -162,6 +177,8 @@ export type EmployeeDirectoryItem = {
   active?: boolean;
   managerEmployeeId?: string | null;
   manager?: EmployeeManagerView | null;
+  activeAssignmentCount?: number;
+  activeAssignments?: EmployeeActiveAssignment[];
 };
 
 export function resolveEffectiveDirectoryRole(roles: RoleCode[]): RoleCode | null {
@@ -199,6 +216,7 @@ function projectEmployeeRow(
     site_name: string | null;
   },
   role: RoleCode,
+  activeAssignments?: EmployeeActiveAssignment[],
 ): EmployeeDirectoryItem {
   const department =
     row.department_id && row.department_code && row.department_name
@@ -213,6 +231,7 @@ function projectEmployeeRow(
       ? { id: row.site_id, code: row.site_code, name: row.site_name }
       : null;
 
+  const assignments = activeAssignments ?? [];
   const base: EmployeeDirectoryItem = {
     id: row.id,
     employeeId: row.employee_id,
@@ -221,6 +240,8 @@ function projectEmployeeRow(
     department,
     team,
     preferredSite,
+    activeAssignmentCount: assignments.length,
+    activeAssignments: assignments,
   };
 
   if (role === 'WORKPLACE_PLANNER') {
@@ -1611,9 +1632,107 @@ export class WorkforceService {
       site_name: string | null;
     }>(dataQuery, queryParams);
 
-    const items = rowsResult.rows.map((row) => projectEmployeeRow(row, role));
+    const employeeIds = rowsResult.rows.map((row) => row.id);
+    const activeAssignmentsMap = await this.fetchActiveAssignmentsForEmployees(employeeIds);
+    const items = rowsResult.rows.map((row) =>
+      projectEmployeeRow(row, role, activeAssignmentsMap.get(row.id)),
+    );
 
     return { total, limit, offset, items };
+  }
+
+  private async fetchActiveAssignmentsForEmployees(
+    employeeIds: string[],
+  ): Promise<Map<string, EmployeeActiveAssignment[]>> {
+    const map = new Map<string, EmployeeActiveAssignment[]>();
+    for (const id of employeeIds) {
+      map.set(id, []);
+    }
+    if (employeeIds.length === 0) {
+      return map;
+    }
+
+    const query = `
+      SELECT 
+        a.id AS assignment_id,
+        a.employee_id,
+        a.placement_identity_id,
+        a.started_at,
+        a.ended_at,
+        f.id AS floor_id,
+        f.name AS floor_name,
+        f.archived_at AS floor_archived_at,
+        b.id AS building_id,
+        b.name AS building_name,
+        b.archived_at AS building_archived_at,
+        s.id AS site_id,
+        s.name AS site_name,
+        s.archived_at AS site_archived_at,
+        rev.id AS published_revision_id,
+        pe.id AS placed_element_id,
+        pe.label AS space_label
+      FROM dskt.assignments a
+      INNER JOIN dskt.placement_identities pi ON a.placement_identity_id = pi.id
+      INNER JOIN dskt.floor_plans fp ON pi.floor_plan_id = fp.id
+      INNER JOIN dskt.floors f ON fp.floor_id = f.id
+      INNER JOIN dskt.buildings b ON f.building_id = b.id
+      INNER JOIN dskt.sites s ON b.site_id = s.id
+      LEFT JOIN dskt.floor_plan_revisions rev 
+        ON rev.floor_plan_id = fp.id AND rev.lifecycle_state = 'PUBLISHED'
+      LEFT JOIN dskt.placed_elements pe 
+        ON pe.floor_plan_revision_id = rev.id AND pe.placement_identity_id = a.placement_identity_id
+      WHERE a.employee_id = ANY($1)
+        AND a.started_at <= NOW()
+        AND (a.ended_at IS NULL OR a.ended_at > NOW())
+      ORDER BY a.started_at DESC;
+    `;
+
+    const result = await this.pool.query<{
+      assignment_id: string;
+      employee_id: string;
+      placement_identity_id: string;
+      started_at: Date;
+      ended_at: Date | null;
+      floor_id: string;
+      floor_name: string;
+      floor_archived_at: Date | null;
+      building_id: string;
+      building_name: string;
+      building_archived_at: Date | null;
+      site_id: string;
+      site_name: string;
+      site_archived_at: Date | null;
+      published_revision_id: string | null;
+      placed_element_id: string | null;
+      space_label: string | null;
+    }>(query, [employeeIds]);
+
+    for (const r of result.rows) {
+      const isArchived = Boolean(r.site_archived_at || r.building_archived_at || r.floor_archived_at);
+      const isAccessible = !isArchived && Boolean(r.published_revision_id) && Boolean(r.placed_element_id);
+
+      const item: EmployeeActiveAssignment = {
+        id: r.assignment_id,
+        placementIdentityId: r.placement_identity_id,
+        spaceLabel: r.space_label ?? null,
+        siteId: r.site_id,
+        siteName: r.site_name,
+        buildingId: r.building_id,
+        buildingName: r.building_name,
+        floorId: r.floor_id,
+        floorName: r.floor_name,
+        startedAt: r.started_at.toISOString(),
+        endedAt: r.ended_at ? r.ended_at.toISOString() : null,
+        isAccessible,
+      };
+
+      const list = map.get(r.employee_id);
+      if (list) {
+        list.push(item);
+      }
+    }
+
+    return map;
   }
 
   /**
@@ -1686,6 +1805,7 @@ export class WorkforceService {
       return null;
     }
 
-    return projectEmployeeRow(row, role);
+    const activeAssignmentsMap = await this.fetchActiveAssignmentsForEmployees([row.id]);
+    return projectEmployeeRow(row, role, activeAssignmentsMap.get(row.id));
   }
 }

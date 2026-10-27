@@ -170,6 +170,10 @@ const conflictResponse = z.object({
     'template_archived',
     'floor_plan_already_exists',
     'revision_not_draft',
+    'revision_not_published',
+    'stale_revision',
+    'invalid_preview_token',
+    'label_collision',
     'concurrency_conflict',
     'duplicate_label',
     'lease_conflict',
@@ -178,6 +182,38 @@ const conflictResponse = z.object({
     'command_id_payload_mismatch',
   ]),
   currentConcurrencyVersion: z.number().int().optional(),
+});
+
+const labelConflictSchema = z.object({
+  type: z.enum(['duplicate', 'collision', 'ineligible_space', 'stale_revision']),
+  placementId: z.string().optional(),
+  label: z.string().optional(),
+  message: z.string(),
+});
+
+const proposedLabelViewSchema = z.object({
+  placementId: z.string(),
+  placementIdentityId: z.string(),
+  currentLabel: z.string().nullable(),
+  proposedLabel: z.string(),
+  positionX: z.number().int(),
+  positionY: z.number().int(),
+});
+
+const previewBatchLabelsResponseSchema = z.object({
+  ok: z.literal(true),
+  previewToken: z.string(),
+  concurrencyVersion: z.number().int(),
+  proposedLabels: z.array(proposedLabelViewSchema),
+  conflicts: z.array(labelConflictSchema),
+  canConfirm: z.boolean(),
+});
+
+const confirmBatchLabelsResponseSchema = z.object({
+  ok: z.literal(true),
+  revisionId: z.string().uuid(),
+  updatedCount: z.number().int(),
+  concurrencyVersion: z.number().int(),
 });
 
 const leaseHolderViewSchema = z.object({
@@ -262,6 +298,10 @@ function floorPlanErrorHttp(error: FloorPlanError): {
     case 'template_archived':
     case 'floor_plan_already_exists':
     case 'revision_not_draft':
+    case 'revision_not_published':
+    case 'stale_revision':
+    case 'invalid_preview_token':
+    case 'label_collision':
     case 'duplicate_label':
     case 'lease_conflict':
     case 'lease_invalid_token':
@@ -1282,6 +1322,124 @@ export const floorPlanRoutes: FastifyPluginAsync<FloorPlanRouteOptions> = async 
           actorUserId: request.principal!.appUserId,
           leaseToken,
           clientCommandId,
+        });
+        return reply.code(200).send(result);
+      } catch (error) {
+        if (error instanceof FloorPlanError) {
+          const mapped = floorPlanErrorHttp(error);
+          reply.statusCode = mapped.status;
+          return mapped.body as never;
+        }
+        throw error;
+      }
+    },
+  );
+
+  typedApp.post(
+    '/floors/:floorId/floor-plan/revisions/:revisionId/batch-labels/preview',
+    {
+      preHandler: [authenticate, requireAnyRole('WORKPLACE_PLANNER')],
+      schema: {
+        operationId: 'previewBatchLabels',
+        tags: ['floor-plans'],
+        summary: 'Generate deterministic batch label proposal for selected Published physical spaces',
+        description:
+          'Proposes sequential labels according to prefix, starting number, width, and ordering strategy without mutating placement records. ' +
+          'Detects duplicate, collision, ineligible-space, and stale-revision conflicts.',
+        security: [],
+        params: z.object({
+          floorId: z.string().uuid(),
+          revisionId: z.string().uuid(),
+        }),
+        body: z.object({
+          placementIds: z.array(z.string().uuid()),
+          prefix: z.string(),
+          startNumber: z.number().int().min(0),
+          width: z.number().int().min(1),
+          ordering: z.enum(['SELECTION', 'ROW_MAJOR', 'COLUMN_MAJOR']),
+          concurrencyVersion: z.number().int(),
+        }),
+        response: {
+          200: previewBatchLabelsResponseSchema,
+          400: badRequestResponse,
+          401: unauthorizedResponse,
+          403: forbiddenResponse,
+          404: notFoundResponse,
+          409: conflictResponse,
+        },
+      },
+    },
+    async (request, reply) => {
+      try {
+        const result = await service.previewBatchLabels({
+          floorId: request.params.floorId,
+          revisionId: request.params.revisionId,
+          placementIds: request.body.placementIds,
+          prefix: request.body.prefix,
+          startNumber: request.body.startNumber,
+          width: request.body.width,
+          ordering: request.body.ordering,
+          concurrencyVersion: request.body.concurrencyVersion,
+        });
+        return reply.code(200).send(result);
+      } catch (error) {
+        if (error instanceof FloorPlanError) {
+          const mapped = floorPlanErrorHttp(error);
+          reply.statusCode = mapped.status;
+          return mapped.body as never;
+        }
+        throw error;
+      }
+    },
+  );
+
+  typedApp.post(
+    '/floors/:floorId/floor-plan/revisions/:revisionId/batch-labels/confirm',
+    {
+      preHandler: [authenticate, requireAnyRole('WORKPLACE_PLANNER')],
+      schema: {
+        operationId: 'confirmBatchLabels',
+        tags: ['floor-plans'],
+        summary: 'Apply accepted preview batch labels transactionally and idempotently',
+        description:
+          'Applies the exact accepted preview labels to Published physical spaces in a single transaction. ' +
+          'Enforces concurrency control, preview token validation, idempotency via clientCommandId, and audit logging.',
+        security: [],
+        params: z.object({
+          floorId: z.string().uuid(),
+          revisionId: z.string().uuid(),
+        }),
+        body: z.object({
+          previewToken: z.string().min(1),
+          concurrencyVersion: z.number().int(),
+          assignments: z.array(
+            z.object({
+              placementId: z.string().uuid(),
+              label: z.string().min(1),
+            }),
+          ),
+          clientCommandId: z.string().min(1),
+        }),
+        response: {
+          200: confirmBatchLabelsResponseSchema,
+          400: badRequestResponse,
+          401: unauthorizedResponse,
+          403: forbiddenResponse,
+          404: notFoundResponse,
+          409: conflictResponse,
+        },
+      },
+    },
+    async (request, reply) => {
+      try {
+        const result = await service.confirmBatchLabels({
+          floorId: request.params.floorId,
+          revisionId: request.params.revisionId,
+          previewToken: request.body.previewToken,
+          concurrencyVersion: request.body.concurrencyVersion,
+          assignments: request.body.assignments,
+          clientCommandId: request.body.clientCommandId,
+          actorUserId: request.principal!.appUserId,
         });
         return reply.code(200).send(result);
       } catch (error) {

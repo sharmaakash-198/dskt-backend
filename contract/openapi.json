@@ -5017,6 +5017,10 @@
                         "template_archived",
                         "floor_plan_already_exists",
                         "revision_not_draft",
+                        "revision_not_published",
+                        "stale_revision",
+                        "invalid_preview_token",
+                        "label_collision",
                         "concurrency_conflict",
                         "duplicate_label",
                         "lease_conflict",
@@ -5738,6 +5742,10 @@
                         "template_archived",
                         "floor_plan_already_exists",
                         "revision_not_draft",
+                        "revision_not_published",
+                        "stale_revision",
+                        "invalid_preview_token",
+                        "label_collision",
                         "concurrency_conflict",
                         "duplicate_label",
                         "lease_conflict",
@@ -6154,6 +6162,10 @@
                         "template_archived",
                         "floor_plan_already_exists",
                         "revision_not_draft",
+                        "revision_not_published",
+                        "stale_revision",
+                        "invalid_preview_token",
+                        "label_collision",
                         "concurrency_conflict",
                         "duplicate_label",
                         "lease_conflict",
@@ -6577,6 +6589,10 @@
                         "template_archived",
                         "floor_plan_already_exists",
                         "revision_not_draft",
+                        "revision_not_published",
+                        "stale_revision",
+                        "invalid_preview_token",
+                        "label_collision",
                         "concurrency_conflict",
                         "duplicate_label",
                         "lease_conflict",
@@ -7051,6 +7067,10 @@
                         "template_archived",
                         "floor_plan_already_exists",
                         "revision_not_draft",
+                        "revision_not_published",
+                        "stale_revision",
+                        "invalid_preview_token",
+                        "label_collision",
                         "concurrency_conflict",
                         "duplicate_label",
                         "lease_conflict",
@@ -7633,6 +7653,10 @@
                         "template_archived",
                         "floor_plan_already_exists",
                         "revision_not_draft",
+                        "revision_not_published",
+                        "stale_revision",
+                        "invalid_preview_token",
+                        "label_collision",
                         "concurrency_conflict",
                         "duplicate_label",
                         "lease_conflict",
@@ -8076,6 +8100,10 @@
                         "template_archived",
                         "floor_plan_already_exists",
                         "revision_not_draft",
+                        "revision_not_published",
+                        "stale_revision",
+                        "invalid_preview_token",
+                        "label_collision",
                         "concurrency_conflict",
                         "duplicate_label",
                         "lease_conflict",
@@ -8320,6 +8348,10 @@
                         "template_archived",
                         "floor_plan_already_exists",
                         "revision_not_draft",
+                        "revision_not_published",
+                        "stale_revision",
+                        "invalid_preview_token",
+                        "label_collision",
                         "concurrency_conflict",
                         "duplicate_label",
                         "lease_conflict",
@@ -8563,6 +8595,10 @@
                         "template_archived",
                         "floor_plan_already_exists",
                         "revision_not_draft",
+                        "revision_not_published",
+                        "stale_revision",
+                        "invalid_preview_token",
+                        "label_collision",
                         "concurrency_conflict",
                         "duplicate_label",
                         "lease_conflict",
@@ -8820,6 +8856,10 @@
                         "template_archived",
                         "floor_plan_already_exists",
                         "revision_not_draft",
+                        "revision_not_published",
+                        "stale_revision",
+                        "invalid_preview_token",
+                        "label_collision",
                         "concurrency_conflict",
                         "duplicate_label",
                         "lease_conflict",
@@ -9021,6 +9061,10 @@
                         "template_archived",
                         "floor_plan_already_exists",
                         "revision_not_draft",
+                        "revision_not_published",
+                        "stale_revision",
+                        "invalid_preview_token",
+                        "label_collision",
                         "concurrency_conflict",
                         "duplicate_label",
                         "lease_conflict",
@@ -9268,6 +9312,10 @@
                         "template_archived",
                         "floor_plan_already_exists",
                         "revision_not_draft",
+                        "revision_not_published",
+                        "stale_revision",
+                        "invalid_preview_token",
+                        "label_collision",
                         "concurrency_conflict",
                         "duplicate_label",
                         "lease_conflict",
@@ -9874,6 +9922,10 @@
                         "template_archived",
                         "floor_plan_already_exists",
                         "revision_not_draft",
+                        "revision_not_published",
+                        "stale_revision",
+                        "invalid_preview_token",
+                        "label_collision",
                         "concurrency_conflict",
                         "duplicate_label",
                         "lease_conflict",
@@ -10456,6 +10508,10 @@
                         "template_archived",
                         "floor_plan_already_exists",
                         "revision_not_draft",
+                        "revision_not_published",
+                        "stale_revision",
+                        "invalid_preview_token",
+                        "label_collision",
                         "concurrency_conflict",
                         "duplicate_label",
                         "lease_conflict",
@@ -10957,6 +11013,10 @@
                         "template_archived",
                         "floor_plan_already_exists",
                         "revision_not_draft",
+                        "revision_not_published",
+                        "stale_revision",
+                        "invalid_preview_token",
+                        "label_collision",
                         "concurrency_conflict",
                         "duplicate_label",
                         "lease_conflict",
@@ -11277,6 +11337,10 @@
                         "template_archived",
                         "floor_plan_already_exists",
                         "revision_not_draft",
+                        "revision_not_published",
+                        "stale_revision",
+                        "invalid_preview_token",
+                        "label_collision",
                         "concurrency_conflict",
                         "duplicate_label",
                         "lease_conflict",
@@ -11778,6 +11842,10 @@
                         "template_archived",
                         "floor_plan_already_exists",
                         "revision_not_draft",
+                        "revision_not_published",
+                        "stale_revision",
+                        "invalid_preview_token",
+                        "label_collision",
                         "concurrency_conflict",
                         "duplicate_label",
                         "lease_conflict",
@@ -12124,6 +12192,803 @@
                         "template_archived",
                         "floor_plan_already_exists",
                         "revision_not_draft",
+                        "revision_not_published",
+                        "stale_revision",
+                        "invalid_preview_token",
+                        "label_collision",
+                        "concurrency_conflict",
+                        "duplicate_label",
+                        "lease_conflict",
+                        "lease_invalid_token",
+                        "lease_expired",
+                        "command_id_payload_mismatch"
+                      ]
+                    },
+                    "currentConcurrencyVersion": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/floors/{floorId}/floor-plan/revisions/{revisionId}/batch-labels/preview": {
+      "post": {
+        "operationId": "previewBatchLabels",
+        "summary": "Generate deterministic batch label proposal for selected Published physical spaces",
+        "tags": [
+          "floor-plans"
+        ],
+        "description": "Proposes sequential labels according to prefix, starting number, width, and ordering strategy without mutating placement records. Detects duplicate, collision, ineligible-space, and stale-revision conflicts.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "placementIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "prefix": {
+                    "type": "string"
+                  },
+                  "startNumber": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "width": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "ordering": {
+                    "type": "string",
+                    "enum": [
+                      "SELECTION",
+                      "ROW_MAJOR",
+                      "COLUMN_MAJOR"
+                    ]
+                  },
+                  "concurrencyVersion": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "placementIds",
+                  "prefix",
+                  "startNumber",
+                  "width",
+                  "ordering",
+                  "concurrencyVersion"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "floorId",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "revisionId",
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "previewToken": {
+                      "type": "string"
+                    },
+                    "concurrencyVersion": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "proposedLabels": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "placementId": {
+                            "type": "string"
+                          },
+                          "placementIdentityId": {
+                            "type": "string"
+                          },
+                          "currentLabel": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "proposedLabel": {
+                            "type": "string"
+                          },
+                          "positionX": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "positionY": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "placementId",
+                          "placementIdentityId",
+                          "currentLabel",
+                          "proposedLabel",
+                          "positionX",
+                          "positionY"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "conflicts": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "duplicate",
+                              "collision",
+                              "ineligible_space",
+                              "stale_revision"
+                            ]
+                          },
+                          "placementId": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "message"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "canConfirm": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "previewToken",
+                    "concurrencyVersion",
+                    "proposedLabels",
+                    "conflicts",
+                    "canConfirm"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "diagnostics": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          },
+                          "vertexIndex": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "edgeIndex": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "validationErrors": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "category": {
+                            "type": "string",
+                            "enum": [
+                              "BOUNDARY",
+                              "CONTAINMENT",
+                              "COLLISION",
+                              "TEMPLATE",
+                              "LABEL",
+                              "LIFECYCLE"
+                            ]
+                          },
+                          "entityType": {
+                            "type": "string",
+                            "enum": [
+                              "BOUNDARY",
+                              "PLACEMENT",
+                              "REVISION",
+                              "FLOOR"
+                            ]
+                          },
+                          "entityId": {
+                            "type": "string"
+                          },
+                          "conflictingEntityId": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          },
+                          "correctiveAction": {
+                            "type": "string"
+                          },
+                          "vertexIndex": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "edgeIndex": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "details": {
+                            "type": "object",
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "additionalProperties": {}
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "category",
+                          "entityType",
+                          "entityId",
+                          "message",
+                          "correctiveAction"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or session expired/revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unauthorized"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Not authenticated or session expired/revoked."
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but missing a required application role.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "forbidden"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Authenticated but missing a required application role."
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "floor_not_found",
+                        "floor_plan_not_found",
+                        "revision_not_found",
+                        "published_revision_not_found",
+                        "template_revision_not_found",
+                        "placement_not_found",
+                        "lease_not_found"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "floor_archived",
+                        "building_archived",
+                        "site_archived",
+                        "template_archived",
+                        "floor_plan_already_exists",
+                        "revision_not_draft",
+                        "revision_not_published",
+                        "stale_revision",
+                        "invalid_preview_token",
+                        "label_collision",
+                        "concurrency_conflict",
+                        "duplicate_label",
+                        "lease_conflict",
+                        "lease_invalid_token",
+                        "lease_expired",
+                        "command_id_payload_mismatch"
+                      ]
+                    },
+                    "currentConcurrencyVersion": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/floors/{floorId}/floor-plan/revisions/{revisionId}/batch-labels/confirm": {
+      "post": {
+        "operationId": "confirmBatchLabels",
+        "summary": "Apply accepted preview batch labels transactionally and idempotently",
+        "tags": [
+          "floor-plans"
+        ],
+        "description": "Applies the exact accepted preview labels to Published physical spaces in a single transaction. Enforces concurrency control, preview token validation, idempotency via clientCommandId, and audit logging.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "previewToken": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "concurrencyVersion": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "assignments": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "placementId": {
+                          "type": "string",
+                          "format": "uuid",
+                          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                        },
+                        "label": {
+                          "type": "string",
+                          "minLength": 1
+                        }
+                      },
+                      "required": [
+                        "placementId",
+                        "label"
+                      ]
+                    }
+                  },
+                  "clientCommandId": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "previewToken",
+                  "concurrencyVersion",
+                  "assignments",
+                  "clientCommandId"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "floorId",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            },
+            "in": "path",
+            "name": "revisionId",
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    },
+                    "revisionId": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "updatedCount": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "concurrencyVersion": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "revisionId",
+                    "updatedCount",
+                    "concurrencyVersion"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "diagnostics": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          },
+                          "vertexIndex": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "edgeIndex": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "validationErrors": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "category": {
+                            "type": "string",
+                            "enum": [
+                              "BOUNDARY",
+                              "CONTAINMENT",
+                              "COLLISION",
+                              "TEMPLATE",
+                              "LABEL",
+                              "LIFECYCLE"
+                            ]
+                          },
+                          "entityType": {
+                            "type": "string",
+                            "enum": [
+                              "BOUNDARY",
+                              "PLACEMENT",
+                              "REVISION",
+                              "FLOOR"
+                            ]
+                          },
+                          "entityId": {
+                            "type": "string"
+                          },
+                          "conflictingEntityId": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          },
+                          "correctiveAction": {
+                            "type": "string"
+                          },
+                          "vertexIndex": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "edgeIndex": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "details": {
+                            "type": "object",
+                            "propertyNames": {
+                              "type": "string"
+                            },
+                            "additionalProperties": {}
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "category",
+                          "entityType",
+                          "entityId",
+                          "message",
+                          "correctiveAction"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not authenticated or session expired/revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unauthorized"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Not authenticated or session expired/revoked."
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Authenticated but missing a required application role.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "forbidden"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Authenticated but missing a required application role."
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "floor_not_found",
+                        "floor_plan_not_found",
+                        "revision_not_found",
+                        "published_revision_not_found",
+                        "template_revision_not_found",
+                        "placement_not_found",
+                        "lease_not_found"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "floor_archived",
+                        "building_archived",
+                        "site_archived",
+                        "template_archived",
+                        "floor_plan_already_exists",
+                        "revision_not_draft",
+                        "revision_not_published",
+                        "stale_revision",
+                        "invalid_preview_token",
+                        "label_collision",
                         "concurrency_conflict",
                         "duplicate_label",
                         "lease_conflict",

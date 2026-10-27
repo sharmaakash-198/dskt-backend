@@ -29,6 +29,16 @@ import {
   type GeometryErrorCode,
   type Vertex,
 } from '../geometry/orthogonal.js';
+import {
+  computeBatchPreviewToken,
+  detectLabelConflicts,
+  generateBatchLabels,
+  orderPlacements,
+  type BatchPlacementInput,
+  type LabelConflict,
+  type OrderingStrategy,
+  type ProposedAssignment,
+} from './batch-labels.js';
 import { hasAnyRole, type RequestPrincipal } from '../auth/principal.js';
 import {
   appUsers,
@@ -271,7 +281,11 @@ export class FloorPlanError extends Error {
       | 'lease_expired'
       | 'lease_not_found'
       | 'command_id_payload_mismatch'
-      | 'publication_validation_failed',
+      | 'publication_validation_failed'
+      | 'revision_not_published'
+      | 'stale_revision'
+      | 'invalid_preview_token'
+      | 'label_collision',
     readonly diagnostics: GeometryDiagnostic[] = [],
     readonly details?: Record<string, unknown>,
   ) {
@@ -279,6 +293,52 @@ export class FloorPlanError extends Error {
     this.name = 'FloorPlanError';
   }
 }
+
+export type PreviewBatchLabelsInput = {
+  floorId: string;
+  revisionId: string;
+  placementIds: string[];
+  prefix: string;
+  startNumber: number;
+  width: number;
+  ordering: OrderingStrategy;
+  concurrencyVersion: number;
+};
+
+export type ProposedLabelView = {
+  placementId: string;
+  placementIdentityId: string;
+  currentLabel: string | null;
+  proposedLabel: string;
+  positionX: number;
+  positionY: number;
+};
+
+export type PreviewBatchLabelsResult = {
+  ok: true;
+  previewToken: string;
+  concurrencyVersion: number;
+  proposedLabels: ProposedLabelView[];
+  conflicts: LabelConflict[];
+  canConfirm: boolean;
+};
+
+export type ConfirmBatchLabelsInput = {
+  floorId: string;
+  revisionId: string;
+  previewToken: string;
+  concurrencyVersion: number;
+  assignments: ProposedAssignment[];
+  clientCommandId: string;
+  actorUserId: string;
+};
+
+export type ConfirmBatchLabelsResult = {
+  ok: true;
+  revisionId: string;
+  updatedCount: number;
+  concurrencyVersion: number;
+};
 
 function canonicalJson(obj: unknown): string {
   if (obj === null || typeof obj !== 'object') {
@@ -2295,6 +2355,281 @@ export class FloorPlanService {
       }
 
       return view;
+    });
+  }
+
+  /**
+   * Preview batch labels for selected placements on a Published floor plan revision.
+   * Deterministic and purely read-only (does NOT mutate database records).
+   */
+  async previewBatchLabels(input: PreviewBatchLabelsInput): Promise<PreviewBatchLabelsResult> {
+    await this.requireActiveFloor(this.db, input.floorId);
+    const revs = await this.db
+      .select()
+      .from(floorPlanRevisions)
+      .where(eq(floorPlanRevisions.id, input.revisionId));
+    const revision = revs[0];
+    if (!revision) {
+      throw new FloorPlanError('revision_not_found');
+    }
+    if (revision.lifecycleState !== 'PUBLISHED') {
+      throw new FloorPlanError('revision_not_published');
+    }
+
+    // Fetch all placements on this revision joined with element template revision for spatialClass
+    const rows = await this.db
+      .select({
+        id: placedElements.id,
+        placementIdentityId: placedElements.placementIdentityId,
+        positionX: placedElements.positionX,
+        positionY: placedElements.positionY,
+        label: placedElements.label,
+        spatialClass: elementTemplateRevisions.spatialClass,
+      })
+      .from(placedElements)
+      .innerJoin(
+        elementTemplateRevisions,
+        eq(placedElements.elementTemplateRevisionId, elementTemplateRevisions.id),
+      )
+      .where(eq(placedElements.floorPlanRevisionId, input.revisionId));
+
+    const allPlacements: BatchPlacementInput[] = rows.map((r) => ({
+      id: r.id,
+      placementIdentityId: r.placementIdentityId,
+      positionX: r.positionX,
+      positionY: r.positionY,
+      spatialClass: r.spatialClass as 'PHYSICAL' | 'ZONE' | 'OBSTACLE',
+      currentLabel: r.label,
+    }));
+
+    const placementMap = new Map(allPlacements.map((p) => [p.id, p]));
+    const selectedPlacements: BatchPlacementInput[] = [];
+    const missingOrIneligibleConflicts: LabelConflict[] = [];
+
+    for (const id of input.placementIds) {
+      const p = placementMap.get(id);
+      if (!p) {
+        missingOrIneligibleConflicts.push({
+          type: 'ineligible_space',
+          placementId: id,
+          message: `Placement ${id} was not found on revision ${input.revisionId}.`,
+        });
+      } else {
+        selectedPlacements.push(p);
+      }
+    }
+
+    // Check stale revision
+    const conflicts: LabelConflict[] = [...missingOrIneligibleConflicts];
+    if (revision.concurrencyVersion !== input.concurrencyVersion) {
+      conflicts.push({
+        type: 'stale_revision',
+        message: `Revision concurrency version mismatch: expected ${input.concurrencyVersion}, current is ${revision.concurrencyVersion}.`,
+      });
+    }
+
+    // Order placements
+    const ordered = orderPlacements(selectedPlacements, input.ordering, input.placementIds);
+
+    // Generate labels
+    const proposedAssignments = generateBatchLabels(ordered, {
+      prefix: input.prefix,
+      startNumber: input.startNumber,
+      width: input.width,
+    });
+
+    // Detect other conflicts
+    const otherConflicts = detectLabelConflicts({
+      selectedPlacements,
+      proposedAssignments,
+      existingRevisionPlacements: allPlacements,
+    });
+    conflicts.push(...otherConflicts);
+
+    const canConfirm = conflicts.length === 0;
+    const previewToken = canConfirm
+      ? computeBatchPreviewToken(input.revisionId, revision.concurrencyVersion, proposedAssignments)
+      : '';
+
+    const proposedLabels: ProposedLabelView[] = proposedAssignments.map((a) => {
+      const pl = placementMap.get(a.placementId);
+      return {
+        placementId: a.placementId,
+        placementIdentityId: pl?.placementIdentityId ?? '',
+        currentLabel: pl?.currentLabel ?? null,
+        proposedLabel: a.label,
+        positionX: pl?.positionX ?? 0,
+        positionY: pl?.positionY ?? 0,
+      };
+    });
+
+    return {
+      ok: true,
+      previewToken,
+      concurrencyVersion: revision.concurrencyVersion,
+      proposedLabels,
+      conflicts,
+      canConfirm,
+    };
+  }
+
+  /**
+   * Apply accepted preview batch labels transactionally and idempotently.
+   */
+  async confirmBatchLabels(input: ConfirmBatchLabelsInput): Promise<ConfirmBatchLabelsResult> {
+    return await this.db.transaction(async (tx) => {
+      // 1. Check idempotency via processedCommands
+      const requestPayload = {
+        previewToken: input.previewToken,
+        concurrencyVersion: input.concurrencyVersion,
+        assignments: input.assignments,
+      };
+      const reqHash = hashPayload(requestPayload);
+
+      const existingCmds = await tx
+        .select()
+        .from(processedCommands)
+        .where(
+          and(
+            eq(processedCommands.floorPlanRevisionId, input.revisionId),
+            eq(processedCommands.clientCommandId, input.clientCommandId),
+          ),
+        );
+
+      const existingCmd = existingCmds[0];
+      if (existingCmd) {
+        if (existingCmd.requestHash !== reqHash) {
+          throw new FloorPlanError('command_id_payload_mismatch');
+        }
+        return JSON.parse(existingCmd.responseBody) as ConfirmBatchLabelsResult;
+      }
+
+      // 2. Validate floor and revision
+      await this.requireActiveFloor(tx, input.floorId);
+      const revs = await tx
+        .select()
+        .from(floorPlanRevisions)
+        .where(eq(floorPlanRevisions.id, input.revisionId));
+      const revision = revs[0];
+      if (!revision) {
+        throw new FloorPlanError('revision_not_found');
+      }
+      if (revision.lifecycleState !== 'PUBLISHED') {
+        throw new FloorPlanError('revision_not_published');
+      }
+      if (revision.concurrencyVersion !== input.concurrencyVersion) {
+        throw new FloorPlanError('stale_revision', [], {
+          currentConcurrencyVersion: revision.concurrencyVersion,
+        });
+      }
+
+      // 3. Verify previewToken
+      const expectedToken = computeBatchPreviewToken(
+        input.revisionId,
+        revision.concurrencyVersion,
+        input.assignments,
+      );
+      if (input.previewToken !== expectedToken) {
+        throw new FloorPlanError('invalid_preview_token');
+      }
+
+      // 4. Validate placements and collisions
+      const rows = await tx
+        .select({
+          id: placedElements.id,
+          placementIdentityId: placedElements.placementIdentityId,
+          positionX: placedElements.positionX,
+          positionY: placedElements.positionY,
+          label: placedElements.label,
+          spatialClass: elementTemplateRevisions.spatialClass,
+        })
+        .from(placedElements)
+        .innerJoin(
+          elementTemplateRevisions,
+          eq(placedElements.elementTemplateRevisionId, elementTemplateRevisions.id),
+        )
+        .where(eq(placedElements.floorPlanRevisionId, input.revisionId));
+
+      const allPlacements: BatchPlacementInput[] = rows.map((r) => ({
+        id: r.id,
+        placementIdentityId: r.placementIdentityId,
+        positionX: r.positionX,
+        positionY: r.positionY,
+        spatialClass: r.spatialClass as 'PHYSICAL' | 'ZONE' | 'OBSTACLE',
+        currentLabel: r.label,
+      }));
+
+      const selectedPlacements = input.assignments
+        .map((a) => allPlacements.find((p) => p.id === a.placementId))
+        .filter((p): p is BatchPlacementInput => Boolean(p));
+
+      if (selectedPlacements.length !== input.assignments.length) {
+        throw new FloorPlanError('placement_not_found');
+      }
+
+      const conflicts = detectLabelConflicts({
+        selectedPlacements,
+        proposedAssignments: input.assignments,
+        existingRevisionPlacements: allPlacements,
+      });
+      if (conflicts.length > 0) {
+        throw new FloorPlanError('label_collision');
+      }
+
+      // 5. Update placement records in this transaction
+      for (const assignment of input.assignments) {
+        await tx
+          .update(placedElements)
+          .set({
+            label: assignment.label,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(placedElements.id, assignment.placementId),
+              eq(placedElements.floorPlanRevisionId, input.revisionId),
+            ),
+          );
+      }
+
+      const nextConcurrencyVersion = revision.concurrencyVersion + 1;
+      await tx
+        .update(floorPlanRevisions)
+        .set({
+          concurrencyVersion: nextConcurrencyVersion,
+          updatedAt: new Date(),
+        })
+        .where(eq(floorPlanRevisions.id, revision.id));
+
+      // 6. Audit event
+      await tx.insert(auditEvents).values({
+        actorUserId: input.actorUserId,
+        action: 'batch_label_applied',
+        targetType: 'floor_plan_revision',
+        targetId: revision.id,
+        correlationId: input.clientCommandId,
+        summary: `Applied batch labels to ${input.assignments.length} physical spaces on floor ${input.floorId} revision ${revision.revisionNumber}`,
+      });
+
+      const response: ConfirmBatchLabelsResult = {
+        ok: true,
+        revisionId: revision.id,
+        updatedCount: input.assignments.length,
+        concurrencyVersion: nextConcurrencyVersion,
+      };
+
+      // 7. Record processed command for idempotent replay
+      await tx.insert(processedCommands).values({
+        floorPlanRevisionId: revision.id,
+        clientCommandId: input.clientCommandId,
+        appUserId: input.actorUserId,
+        commandType: 'batch_labels_confirm',
+        requestHash: reqHash,
+        responseStatus: 200,
+        responseBody: JSON.stringify(response),
+      });
+
+      return response;
     });
   }
 }

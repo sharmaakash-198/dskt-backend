@@ -99,6 +99,13 @@
       "when": 1760832000000,
       "tag": "0013_employee_import_confirmation",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1760918400000,
+      "tag": "0014_assignments",
+      "breakpoints": true
     }
   ]
 }

@@ -565,3 +565,34 @@ export const employeeImportRowErrors = dskt.table(
     index('employee_import_row_errors_row_idx').on(table.employeeImportRowId),
   ],
 );
+
+// ---------------------------------------------------------------------------
+// Space Assignments
+// ---------------------------------------------------------------------------
+
+export const assignments = dskt.table(
+  'assignments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    placementIdentityId: uuid('placement_identity_id')
+      .notNull()
+      .references(() => placementIdentities.id),
+    employeeId: uuid('employee_id')
+      .notNull()
+      .references(() => employees.id),
+    assignedByUserId: uuid('assigned_by_user_id')
+      .notNull()
+      .references(() => appUsers.id),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
+    endedAt: timestamp('ended_at', { withTimezone: true }),
+    clientCommandId: text('client_command_id'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('assignments_employee_id_idx').on(table.employeeId),
+    index('assignments_placement_identity_idx').on(table.placementIdentityId),
+    uniqueIndex('assignments_client_command_id_uidx').on(table.clientCommandId),
+  ],
+);
+

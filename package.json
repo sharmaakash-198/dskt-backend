@@ -20,6 +20,7 @@
     "openapi:generate": "tsx src/write-openapi.ts",
     "openapi:check": "tsx src/write-openapi.ts --check",
     "bootstrap-local": "tsx --env-file-if-exists=.env src/bootstrap-local.ts",
+    "bootstrap-local:synthetic": "tsx --env-file-if-exists=.env src/bootstrap-local.ts --synthetic-defaults",
     "audit": "npm audit --omit=dev --audit-level=high"
   },
   "dependencies": {
